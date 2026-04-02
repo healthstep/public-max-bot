@@ -1,0 +1,165 @@
+package bot
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+)
+
+const defaultBaseURL = "https://platform-api.max.ru"
+
+// Client wraps the MAX Bot platform HTTP API.
+type Client struct {
+	baseURL    string
+	token      string
+	httpClient *http.Client
+}
+
+func NewClient(token string) *Client {
+	return &Client{
+		baseURL:    defaultBaseURL,
+		token:      token,
+		httpClient: &http.Client{},
+	}
+}
+
+func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
+	u, _ := url.Parse(c.baseURL + path)
+	q := u.Query()
+	q.Set("access_token", c.token)
+	u.RawQuery = q.Encode()
+
+	var reqBody io.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("marshal request: %w", err)
+		}
+		reqBody = bytes.NewReader(data)
+	}
+
+	req, err := http.NewRequest(method, u.String(), reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return respBody, nil
+}
+
+func (c *Client) SendMessage(chatID int64, text string, keyboard *InlineKeyboard) error {
+	msg := sendMessageRequest{
+		ChatID: chatID,
+		Text:   text,
+		Format: "markdown",
+	}
+	if keyboard != nil {
+		msg.Attachments = []attachment{{
+			Type:    "inline_keyboard",
+			Payload: keyboard,
+		}}
+	}
+	_, err := c.doRequest("POST", "/messages", msg)
+	return err
+}
+
+func (c *Client) AnswerCallback(callbackID string) error {
+	_, err := c.doRequest("POST", "/answers/callback", map[string]string{
+		"callback_id": callbackID,
+	})
+	return err
+}
+
+func (c *Client) GetMe() (json.RawMessage, error) {
+	data, err := c.doRequest("GET", "/me", nil)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// --- Request / response types for the MAX platform API ---
+
+type sendMessageRequest struct {
+	ChatID      int64        `json:"chat_id"`
+	Text        string       `json:"text"`
+	Format      string       `json:"format,omitempty"`
+	Attachments []attachment `json:"attachments,omitempty"`
+}
+
+type attachment struct {
+	Type    string `json:"type"`
+	Payload any    `json:"payload"`
+}
+
+type InlineKeyboard struct {
+	Buttons [][]Button `json:"buttons"`
+}
+
+type Button struct {
+	Type    string `json:"type"`
+	Text    string `json:"text"`
+	Payload string `json:"payload,omitempty"`
+	URL     string `json:"url,omitempty"`
+}
+
+// --- Webhook update types ---
+
+type Update struct {
+	UpdateType string    `json:"update_type"`
+	Timestamp  int64     `json:"timestamp"`
+	Message    *Message  `json:"message,omitempty"`
+	Callback   *Callback `json:"callback,omitempty"`
+}
+
+type Message struct {
+	Sender    User      `json:"sender"`
+	Recipient Recipient `json:"recipient"`
+	Body      Body      `json:"body"`
+	Timestamp int64     `json:"timestamp"`
+}
+
+type User struct {
+	UserID   int64  `json:"user_id"`
+	Name     string `json:"name"`
+	Username string `json:"username"`
+}
+
+type Recipient struct {
+	ChatID   int64  `json:"chat_id"`
+	ChatType string `json:"chat_type"`
+}
+
+type Body struct {
+	Mid         string          `json:"mid"`
+	Seq         int64           `json:"seq"`
+	Text        string          `json:"text"`
+	Attachments json.RawMessage `json:"attachments,omitempty"`
+}
+
+type Callback struct {
+	CallbackID string   `json:"callback_id"`
+	Payload    string   `json:"payload"`
+	User       User     `json:"user"`
+	Message    *Message `json:"message,omitempty"`
+}

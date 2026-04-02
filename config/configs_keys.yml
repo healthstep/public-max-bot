@@ -1,0 +1,49 @@
+config:
+  server_port:
+    type: int
+    default: "8082"
+    source: yaml
+  close_timeout:
+    type: duration
+    default: "5s"
+    source: yaml
+  db_dsn:
+    type: string
+    default: "host=localhost user=postgres password=postgres dbname=zdravoshag port=5432 sslmode=disable"
+    source: yaml
+  grpc_core_users:
+    type: string
+    default: "localhost:5001"
+    source: yaml
+  grpc_core_health:
+    type: string
+    default: "localhost:5002"
+    source: yaml
+  nats_url:
+    type: string
+    default: "nats://localhost:4222"
+    source: yaml
+  tracer_host:
+    type: string
+    default: "localhost"
+    source: yaml
+  tracer_port:
+    type: string
+    default: "4317"
+    source: yaml
+  service_name:
+    type: string
+    default: "public-max-bot"
+    source: yaml
+  max_bot_token:
+    type: string
+    default: ""
+    source: env
+  max_webhook_host:
+    type: string
+    default: "https://example.com"
+    source: yaml
+  jwt_secret:
+    type: string
+    default: "change-me"
+    source: env
