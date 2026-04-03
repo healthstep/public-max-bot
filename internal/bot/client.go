@@ -28,9 +28,6 @@ func NewClient(token string) *Client {
 
 func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 	u, _ := url.Parse(c.baseURL + path)
-	q := u.Query()
-	q.Set("access_token", c.token)
-	u.RawQuery = q.Encode()
 
 	var reqBody io.Reader
 	if body != nil {
@@ -45,6 +42,7 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
+	req.Header.Set("Authorization", c.token)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -80,6 +78,14 @@ func (c *Client) SendMessage(chatID int64, text string, keyboard *InlineKeyboard
 		}}
 	}
 	_, err := c.doRequest("POST", "/messages", msg)
+	return err
+}
+
+func (c *Client) SetWebhook(webhookURL string) error {
+	_, err := c.doRequest("POST", "/subscriptions", map[string]any{
+		"url":          webhookURL,
+		"update_types": []string{"message_created", "message_callback", "bot_started"},
+	})
 	return err
 }
 
@@ -130,6 +136,9 @@ type Update struct {
 	Timestamp  int64     `json:"timestamp"`
 	Message    *Message  `json:"message,omitempty"`
 	Callback   *Callback `json:"callback,omitempty"`
+	ChatID     int64     `json:"chat_id,omitempty"`
+	User       *User     `json:"user,omitempty"`
+	Payload    string    `json:"payload,omitempty"`
 }
 
 type Message struct {

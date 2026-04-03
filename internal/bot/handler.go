@@ -82,8 +82,35 @@ func (h *Handler) HandleWebhook(ctx context.Context, req WebhookRequest) (respon
 		if req.Update.Callback != nil {
 			h.handleCallback(ctx, req.Update.Callback)
 		}
+	case "bot_started":
+		h.handleBotStarted(ctx, &req.Update)
 	}
 	return &responses.SuccessResponse{Success: true}, 200
+}
+
+func (h *Handler) handleBotStarted(ctx context.Context, update *Update) {
+	if update.User == nil {
+		return
+	}
+	chatID := update.ChatID
+	if chatID == 0 {
+		return
+	}
+
+	payload := strings.TrimSpace(update.Payload)
+	if payload != "" {
+		msg := &Message{
+			Sender:    *update.User,
+			Recipient: Recipient{ChatID: chatID},
+		}
+		h.handleStartWithKey(ctx, msg, payload)
+	} else {
+		msg := &Message{
+			Sender:    *update.User,
+			Recipient: Recipient{ChatID: chatID},
+		}
+		h.handleStartWithoutKey(ctx, msg)
+	}
 }
 
 func (h *Handler) handleMessage(ctx context.Context, msg *Message) {

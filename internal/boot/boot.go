@@ -58,6 +58,13 @@ func Run(ctx context.Context) error {
 	chatRepo := repository.NewChatRepository(db)
 	botClient := bot.NewClient(configs.Value(ctx, "max_bot_token").String())
 
+	webhookHost := configs.Value(ctx, "max_webhook_host").String()
+	webhookURL := webhookHost + "/max/webhook"
+	if err := botClient.SetWebhook(webhookURL); err != nil {
+		return fmt.Errorf("set max webhook: %w", err)
+	}
+	log.Printf("max webhook set to %s", webhookURL)
+
 	botHandler := bot.NewHandler(botClient, chatRepo, usersClient, healthClient, nc)
 
 	notifHandler := natshandler.NewNotificationHandler(botClient, chatRepo)
