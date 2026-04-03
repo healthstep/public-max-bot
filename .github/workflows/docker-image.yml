@@ -16,12 +16,12 @@ jobs:
           path: public-max-bot
       - uses: actions/checkout@v4
         with:
-          repository: helthtech/core-users
+          repository: healthstep/core-users
           token: ${{ secrets.GOD_TOKEN }}
           path: core-users
       - uses: actions/checkout@v4
         with:
-          repository: helthtech/core-health
+          repository: healthstep/core-health
           token: ${{ secrets.GOD_TOKEN }}
           path: core-health
       - name: Build the Docker image
@@ -36,12 +36,12 @@ jobs:
           path: public-max-bot
       - uses: actions/checkout@v4
         with:
-          repository: helthtech/core-users
+          repository: healthstep/core-users
           token: ${{ secrets.GOD_TOKEN }}
           path: core-users
       - uses: actions/checkout@v4
         with:
-          repository: helthtech/core-health
+          repository: healthstep/core-health
           token: ${{ secrets.GOD_TOKEN }}
           path: core-health
       - name: Docker login
@@ -66,6 +66,6 @@ jobs:
           username: ${{ secrets.SERVER_USERNAME }}
           password: ${{ secrets.SERVER_PASSWORD }}
           script: |
-            cd /root/zdravoshag/infra
+            cd /root/healthstep/infra
             docker compose pull public-max-bot
             docker compose up -d public-max-bot
