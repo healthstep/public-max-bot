@@ -13,6 +13,7 @@ import (
 	"github.com/helthtech/public-max-bot/internal/repository"
 	"github.com/nats-io/nats.go"
 	"github.com/porebric/configs"
+	"github.com/porebric/logger"
 	"github.com/porebric/resty"
 	restyerrors "github.com/porebric/resty/errors"
 	"google.golang.org/grpc"
@@ -65,7 +66,8 @@ func Run(ctx context.Context) error {
 	}
 
 	restyerrors.Init(nil)
-	router := resty.NewRouter(nil, nil)
+	l := logger.New(logger.InfoLevel)
+	router := resty.NewRouter(func() *logger.Logger { return l }, nil)
 
 	resty.Endpoint(router, bot.NewWebhookRequest, botHandler.HandleWebhook)
 
