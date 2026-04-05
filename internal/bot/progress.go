@@ -18,73 +18,23 @@ func (h *Handler) handleProgress(ctx context.Context, cb *Callback, chatID int64
 		return
 	}
 
-	resp, err := h.healthClient.GetDashboard(ctx, &healthpb.GetDashboardRequest{UserId: *chat.UserID})
+	userID := *chat.UserID
+
+	prog, err := h.healthClient.GetProgress(ctx, &healthpb.GetProgressRequest{UserId: userID})
 	if err != nil {
-		log.Printf("get dashboard for %s: %v", *chat.UserID, err)
+		log.Printf("get progress for %s: %v", userID, err)
 		_ = h.client.SendMessage(chatID, "Не удалось загрузить прогресс. Попробуйте позже.", nil)
 		return
 	}
 
-	bar := progressBar(resp.GetProgressPercent())
-	text := fmt.Sprintf(
-		"📊 **Мой прогресс**\n\n"+
-			"Уровень: **%s**\n"+
-			"%s %.0f%%\n"+
-			"Заполнено: %d/%d показателей\n"+
-			"Просрочено: %d\n",
-		resp.GetLevel(),
-		bar, resp.GetProgressPercent(),
-		resp.GetFilledCriteria(), resp.GetTotalCriteria(),
-		resp.GetOverdueCriteria(),
-	)
-
-	if len(resp.GetStates()) > 0 {
-		text += "\n📋 **Детали:**\n"
-		for _, s := range resp.GetStates() {
-			icon := statusIcon(s.GetStatus())
-			summary := s.GetLastValueSummary()
-			if summary == "" {
-				summary = "нет данных"
-			}
-			text += fmt.Sprintf("%s %s — %s\n", icon, s.GetCriterionName(), summary)
-		}
-	}
-
-	_ = h.client.SendMessage(chatID, text, &InlineKeyboard{
-		Buttons: [][]Button{
-			{{Type: "callback", Text: "◀️ Назад", Payload: "menu:back"}},
-		},
-	})
-}
-
-func (h *Handler) handleChecklist(ctx context.Context, cb *Callback, chatID int64) {
-	maxUserID := strconv.FormatInt(cb.User.UserID, 10)
-	chat, err := h.chatRepo.FindByMaxUserID(ctx, maxUserID)
-	if err != nil || chat.UserID == nil {
-		_ = h.client.SendMessage(chatID, "Пожалуйста, сначала зарегистрируйтесь с помощью /start", nil)
-		return
-	}
-
-	resp, err := h.healthClient.GetUserCriterionStates(ctx, &healthpb.GetUserCriterionStatesRequest{UserId: *chat.UserID})
+	criteria, err := h.healthClient.GetUserCriteria(ctx, &healthpb.GetUserCriteriaRequest{UserId: userID})
 	if err != nil {
-		log.Printf("get criterion states for %s: %v", *chat.UserID, err)
-		_ = h.client.SendMessage(chatID, "Не удалось загрузить чеклист. Попробуйте позже.", nil)
+		log.Printf("get user criteria for %s: %v", userID, err)
+		_ = h.client.SendMessage(chatID, "Не удалось загрузить данные. Попробуйте позже.", nil)
 		return
 	}
 
-	text := "✅ **Чеклист здоровья**\n\n"
-	if len(resp.GetStates()) == 0 {
-		text += "Пока нет данных о показателях."
-	} else {
-		for _, s := range resp.GetStates() {
-			icon := statusIcon(s.GetStatus())
-			rec := ""
-			if s.GetRecommendation() != "" {
-				rec = "\n   _" + s.GetRecommendation() + "_"
-			}
-			text += fmt.Sprintf("%s **%s** — %s%s\n", icon, s.GetCriterionName(), s.GetLastValueSummary(), rec)
-		}
-	}
+	text := formatProgressText(prog, criteria.GetEntries())
 
 	_ = h.client.SendMessage(chatID, text, &InlineKeyboard{
 		Buttons: [][]Button{
@@ -92,6 +42,54 @@ func (h *Handler) handleChecklist(ctx context.Context, cb *Callback, chatID int6
 			{{Type: "callback", Text: "◀️ Назад", Payload: "menu:back"}},
 		},
 	})
+}
+
+func formatProgressText(prog *healthpb.GetProgressResponse, entries []*healthpb.UserCriterionEntry) string {
+	var b strings.Builder
+
+	b.WriteString("📊 **Мой прогресс**\n\n")
+	b.WriteString(fmt.Sprintf("Уровень: **%s**\n", prog.GetLevelLabel()))
+
+	pct := prog.GetPercent()
+	bar := progressBar(pct)
+	b.WriteString(fmt.Sprintf("%s %.0f%%\n", bar, pct))
+	b.WriteString(fmt.Sprintf("Заполнено: %d/%d критериев\n", prog.GetFilled(), prog.GetTotal()))
+
+	if len(entries) == 0 {
+		b.WriteString("\nДобавьте данные, нажав «➕ Добавить данные»!")
+		return b.String()
+	}
+
+	// Group by analysis.
+	type analysisGroup struct {
+		name    string
+		entries []*healthpb.UserCriterionEntry
+	}
+	groupMap := map[string]*analysisGroup{}
+	var groupOrder []string
+	for _, e := range entries {
+		aid := e.GetAnalysisId()
+		if _, ok := groupMap[aid]; !ok {
+			groupMap[aid] = &analysisGroup{name: e.GetAnalysisName()}
+			groupOrder = append(groupOrder, aid)
+		}
+		groupMap[aid].entries = append(groupMap[aid].entries, e)
+	}
+
+	for _, aid := range groupOrder {
+		g := groupMap[aid]
+		b.WriteString(fmt.Sprintf("\n🔬 **%s**\n", g.name))
+		for _, e := range g.entries {
+			icon := statusIcon(e.GetStatus())
+			b.WriteString(fmt.Sprintf("  %s %s", icon, e.GetCriterionName()))
+			if e.GetValue() != "" {
+				b.WriteString(fmt.Sprintf(" — **%s**", e.GetValue()))
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	return b.String()
 }
 
 func progressBar(pct float64) string {
@@ -107,13 +105,15 @@ func progressBar(pct float64) string {
 
 func statusIcon(status string) string {
 	switch status {
-	case "ok", "good":
+	case "ok":
 		return "✅"
-	case "warning", "overdue":
+	case "warning":
 		return "⚠️"
-	case "critical", "missing":
-		return "❌"
+	case "critical":
+		return "🔴"
+	case "empty", "":
+		return "⚪"
 	default:
-		return "⬜"
+		return "⚪"
 	}
 }

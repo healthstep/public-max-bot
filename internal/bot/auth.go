@@ -155,7 +155,12 @@ func (h *Handler) handleContact(ctx context.Context, msg *Message, phone string)
 		_ = h.nc.Publish("auth.token."+authKey, tokenMsg)
 	}
 
-	_ = h.client.SendMessage(chatID, "Регистрация завершена! ✅", nil)
+	welcomeMsg := "Регистрация завершена! ✅\n\nДобро пожаловать в **ЗдравоШаг**!"
+	if h.siteURL != "" && verifyResp.GetToken() != "" {
+		loginURL := h.siteURL + "/auth?token=" + verifyResp.GetToken()
+		welcomeMsg += "\n\n🌐 [Войти на сайт одним нажатием](" + loginURL + ")"
+	}
+	_ = h.client.SendMessage(chatID, welcomeMsg, nil)
 	h.sendOnboarding(ctx, chatID)
 }
 

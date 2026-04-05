@@ -43,6 +43,10 @@ config:
     type: string
     default: "https://example.com"
     source: yaml
+  site_url:
+    type: string
+    default: ""
+    source: yaml
   jwt_secret:
     type: string
     default: "change-me"

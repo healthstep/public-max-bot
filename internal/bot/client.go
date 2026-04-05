@@ -42,7 +42,7 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", c.token)
+	req.Header.Set("Authorization", "Bearer "+c.token)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

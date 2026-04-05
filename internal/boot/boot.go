@@ -55,6 +55,7 @@ func Run(ctx context.Context) error {
 		return fmt.Errorf("nats: %w", err)
 	}
 
+	siteURL := configs.Value(ctx, "site_url").String()
 	chatRepo := repository.NewChatRepository(db)
 	botClient := bot.NewClient(configs.Value(ctx, "max_bot_token").String())
 
@@ -65,7 +66,7 @@ func Run(ctx context.Context) error {
 	}
 	log.Printf("max webhook set to %s", webhookURL)
 
-	botHandler := bot.NewHandler(botClient, chatRepo, usersClient, healthClient, nc)
+	botHandler := bot.NewHandler(botClient, chatRepo, usersClient, healthClient, nc, siteURL)
 
 	notifHandler := natshandler.NewNotificationHandler(botClient, chatRepo)
 	if err := notifHandler.Subscribe(nc); err != nil {

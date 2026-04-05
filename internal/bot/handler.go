@@ -20,9 +20,13 @@ import (
 // pendingInput tracks users who are in the middle of typing a numeric value.
 var pendingInput sync.Map
 
+// pendingAnalysis tracks the last selected analysis per user (for cancel command).
+var pendingAnalysis sync.Map
+
 type PendingInput struct {
 	CriterionID   string
 	CriterionName string
+	AnalysisID    string
 }
 
 // Handler processes MAX Bot webhook updates.
@@ -32,6 +36,7 @@ type Handler struct {
 	usersClient  userspb.UserServiceClient
 	healthClient healthpb.HealthServiceClient
 	nc           *nats.Conn
+	siteURL      string
 }
 
 func NewHandler(
@@ -40,6 +45,7 @@ func NewHandler(
 	usersClient userspb.UserServiceClient,
 	healthClient healthpb.HealthServiceClient,
 	nc *nats.Conn,
+	siteURL string,
 ) *Handler {
 	return &Handler{
 		client:       client,
@@ -47,6 +53,7 @@ func NewHandler(
 		usersClient:  usersClient,
 		healthClient: healthClient,
 		nc:           nc,
+		siteURL:      siteURL,
 	}
 }
 
@@ -121,6 +128,19 @@ func (h *Handler) handleMessage(ctx context.Context, msg *Message) {
 	}
 
 	maxUserID := strconv.FormatInt(msg.Sender.UserID, 10)
+	text := strings.TrimSpace(msg.Body.Text)
+
+	// "cancel" resets all criteria for the pending analysis.
+	if strings.EqualFold(text, "отмена") || strings.EqualFold(text, "cancel") {
+		pendingInput.Delete(maxUserID)
+		if aID, ok := pendingAnalysis.LoadAndDelete(maxUserID); ok {
+			h.handleCancelAnalysis(ctx, msg, aID.(string))
+		} else {
+			_ = h.client.SendMessage(msg.Recipient.ChatID, "Нечего отменять.", nil)
+			h.sendMainMenu(ctx, msg.Recipient.ChatID)
+		}
+		return
+	}
 
 	// Check for pending numeric input.
 	if val, ok := pendingInput.LoadAndDelete(maxUserID); ok {
@@ -128,8 +148,6 @@ func (h *Handler) handleMessage(ctx context.Context, msg *Message) {
 		h.handleNumericInput(ctx, msg, pending)
 		return
 	}
-
-	text := strings.TrimSpace(msg.Body.Text)
 
 	if strings.HasPrefix(text, "/start") {
 		parts := strings.SplitN(text, " ", 2)
@@ -174,5 +192,7 @@ func (h *Handler) handleCallback(ctx context.Context, cb *Callback) {
 		h.handleInputCallback(ctx, cb, chatID)
 	case strings.HasPrefix(payload, "onboard:"):
 		h.handleOnboardingCallback(ctx, cb, chatID)
+	case strings.HasPrefix(payload, "rec:"):
+		h.handleRecommendations(ctx, cb, chatID)
 	}
 }
