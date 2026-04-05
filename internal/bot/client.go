@@ -68,7 +68,6 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 
 func (c *Client) SendMessage(chatID int64, text string, keyboard *InlineKeyboard) error {
 	msg := sendMessageRequest{
-		ChatID: chatID,
 		Text:   text,
 		Format: "markdown",
 	}
@@ -78,7 +77,8 @@ func (c *Client) SendMessage(chatID int64, text string, keyboard *InlineKeyboard
 			Payload: keyboard,
 		}}
 	}
-	_, err := c.doRequest("POST", "/messages", msg)
+	// MAX API requires chat_id as a query parameter, not in the body.
+	_, err := c.doRequest("POST", fmt.Sprintf("/messages?chat_id=%d", chatID), msg)
 	return err
 }
 
@@ -108,7 +108,6 @@ func (c *Client) GetMe() (json.RawMessage, error) {
 // --- Request / response types for the MAX platform API ---
 
 type sendMessageRequest struct {
-	ChatID      int64        `json:"chat_id"`
 	Text        string       `json:"text"`
 	Format      string       `json:"format,omitempty"`
 	Attachments []attachment `json:"attachments,omitempty"`
