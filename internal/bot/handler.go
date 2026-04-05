@@ -17,19 +17,19 @@ import (
 	"github.com/porebric/resty/responses"
 )
 
-// pendingInput tracks users who are in the middle of typing a numeric value.
+// pendingInput tracks users who are in the middle of typing a criterion value.
 var pendingInput sync.Map
-
-// pendingAnalysis tracks the last selected analysis per user (for cancel command).
-var pendingAnalysis sync.Map
 
 // criterionNames caches criterionID -> criterionName to avoid bloated callback payloads.
 var criterionNames sync.Map
 
+// criterionInputTypes caches criterionID -> inputType ("numeric" or "check").
+var criterionInputTypes sync.Map
+
 type PendingInput struct {
 	CriterionID   string
 	CriterionName string
-	AnalysisID    string
+	InputType     string // "numeric" or "check"
 }
 
 // Handler processes MAX Bot webhook updates.
@@ -164,19 +164,14 @@ func (h *Handler) handleMessage(ctx context.Context, msg *Message) {
 	maxUserID := strconv.FormatInt(msg.Sender.UserID, 10)
 	text := strings.TrimSpace(msg.Body.Text)
 
-	// "cancel" resets all criteria for the pending analysis.
+	// "cancel" resets all criteria.
 	if strings.EqualFold(text, "отмена") || strings.EqualFold(text, "cancel") {
 		pendingInput.Delete(maxUserID)
-		if aID, ok := pendingAnalysis.LoadAndDelete(maxUserID); ok {
-			h.handleCancelAnalysis(ctx, msg, aID.(string))
-		} else {
-			_ = h.client.SendMessage(msg.Recipient.ChatID, "Нечего отменять.", nil)
-			h.sendMainMenu(ctx, msg.Recipient.ChatID)
-		}
+		h.handleCancelAll(ctx, msg)
 		return
 	}
 
-	// Check for pending numeric input.
+	// Check for pending input.
 	if val, ok := pendingInput.LoadAndDelete(maxUserID); ok {
 		pending := val.(PendingInput)
 		h.handleNumericInput(ctx, msg, pending)

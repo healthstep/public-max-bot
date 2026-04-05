@@ -52,11 +52,7 @@ func formatRecommendationsText(recs []*healthpb.Recommendation) string {
 	text := "💡 **Рекомендации**\n\n"
 	for _, r := range recs {
 		icon := severityIcon(r.GetSeverity())
-		text += fmt.Sprintf("%s **%s**", icon, r.GetCriterionName())
-		if r.GetAnalysisName() != "" {
-			text += fmt.Sprintf(" (%s)", r.GetAnalysisName())
-		}
-		text += "\n"
+		text += fmt.Sprintf("%s **%s**\n", icon, r.GetCriterionName())
 		if r.GetText() != "" {
 			text += fmt.Sprintf("   %s\n", r.GetText())
 		}
