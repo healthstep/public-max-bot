@@ -23,6 +23,9 @@ var pendingInput sync.Map
 // pendingAnalysis tracks the last selected analysis per user (for cancel command).
 var pendingAnalysis sync.Map
 
+// criterionNames caches criterionID -> criterionName to avoid bloated callback payloads.
+var criterionNames sync.Map
+
 type PendingInput struct {
 	CriterionID   string
 	CriterionName string

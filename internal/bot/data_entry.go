@@ -73,43 +73,35 @@ func (h *Handler) handleDataCallback(ctx context.Context, cb *Callback, chatID i
 		pendingAnalysis.Store(maxUserID, value)
 		h.showCriteriaForAnalysis(ctx, cb, chatID, value)
 	case "manual":
-		// value = criterionID:criterionName:analysisID
-		subParts := strings.SplitN(value, ":", 3)
-		if len(subParts) >= 2 {
-			maxUserID := strconv.FormatInt(cb.User.UserID, 10)
-			analysisID := ""
-			if len(subParts) == 3 {
-				analysisID = subParts[2]
-			}
-			pendingInput.Store(maxUserID, PendingInput{
-				CriterionID:   subParts[0],
-				CriterionName: subParts[1],
-				AnalysisID:    analysisID,
-			})
-			_ = h.client.SendMessage(chatID,
-				fmt.Sprintf("Введите числовое значение для **%s**:\n\n_Отправьте «отмена» чтобы сбросить все данные этого анализа._", subParts[1]),
-				&InlineKeyboard{Buttons: [][]Button{
-					{{Type: "callback", Text: "❌ Отмена", Payload: "menu:back"}},
-				}},
-			)
-		}
-	case "done":
-		// value = criterionID:analysisID
-		doneParts := strings.SplitN(value, ":", 2)
+		// value = criterionID  (name looked up from criterionNames map)
 		maxUserID := strconv.FormatInt(cb.User.UserID, 10)
-		if len(doneParts) == 2 {
-			pendingAnalysis.Store(maxUserID, doneParts[1])
+		name := ""
+		if v, ok := criterionNames.Load(value); ok {
+			name = v.(string)
 		}
-		h.createMarkDoneEvent(ctx, chatID, maxUserID, doneParts[0])
-	case "upload":
-		// value = criterionID:analysisID
-		uploadParts := strings.SplitN(value, ":", 2)
-		maxUserID := strconv.FormatInt(cb.User.UserID, 10)
-		if len(uploadParts) == 2 {
-			pendingAnalysis.Store(maxUserID, uploadParts[1])
+		analysisID := ""
+		if v, ok := pendingAnalysis.Load(maxUserID); ok {
+			analysisID = v.(string)
 		}
+		pendingInput.Store(maxUserID, PendingInput{
+			CriterionID:   value,
+			CriterionName: name,
+			AnalysisID:    analysisID,
+		})
 		_ = h.client.SendMessage(chatID,
-			fmt.Sprintf("Загрузите файл (PDF, фото анализов) в этот чат.\n\nID критерия: `%s`\n\n_Отправьте «отмена» чтобы сбросить все данные анализа._", uploadParts[0]),
+			fmt.Sprintf("Введите числовое значение для **%s**:\n\n_Отправьте «отмена» чтобы сбросить все данные этого анализа._", name),
+			&InlineKeyboard{Buttons: [][]Button{
+				{{Type: "callback", Text: "❌ Отмена", Payload: "menu:back"}},
+			}},
+		)
+	case "done":
+		// value = criterionID
+		maxUserID := strconv.FormatInt(cb.User.UserID, 10)
+		h.createMarkDoneEvent(ctx, chatID, maxUserID, value)
+	case "upload":
+		// value = criterionID
+		_ = h.client.SendMessage(chatID,
+			fmt.Sprintf("Загрузите файл (PDF, фото анализов) в этот чат.\n\nID критерия: `%s`\n\n_Отправьте «отмена» чтобы сбросить все данные анализа._", value),
 			&InlineKeyboard{Buttons: [][]Button{
 				{{Type: "callback", Text: "◀️ Назад", Payload: "menu:back_analysis"}},
 			}},
@@ -135,13 +127,16 @@ func (h *Handler) showCriteriaForAnalysis(ctx context.Context, cb *Callback, cha
 
 	var rows [][]Button
 	for _, c := range resp.GetCriteria() {
+		// Cache name so we don't embed it in callback payload.
+		criterionNames.Store(c.GetId(), c.GetName())
+
 		levelIcon := criterionLevelIcon(int(c.GetLevel()))
 		label := levelIcon + " " + c.GetName()
 		rows = append(rows,
 			[]Button{
-				{Type: "callback", Text: label + " — ввести", Payload: "data:manual:" + c.GetId() + ":" + c.GetName() + ":" + analysisID},
-				{Type: "callback", Text: "✅ выполнено", Payload: "data:done:" + c.GetId() + ":" + analysisID},
-				{Type: "callback", Text: "📎 файл", Payload: "data:upload:" + c.GetId() + ":" + analysisID},
+				{Type: "callback", Text: label + " — ввести", Payload: "data:manual:" + c.GetId()},
+				{Type: "callback", Text: "✅ выполнено", Payload: "data:done:" + c.GetId()},
+				{Type: "callback", Text: "📎 файл", Payload: "data:upload:" + c.GetId()},
 			},
 		)
 	}
