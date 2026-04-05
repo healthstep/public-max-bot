@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"log"
 )
 
 func mainMenuKeyboard() *InlineKeyboard {
@@ -15,10 +16,12 @@ func mainMenuKeyboard() *InlineKeyboard {
 }
 
 func (h *Handler) sendMainMenu(ctx context.Context, chatID int64) {
-	_ = h.client.SendMessage(chatID,
+	if err := h.client.SendMessage(chatID,
 		"🏥 **ЗдравоШаг** — ваш помощник по здоровью\n\nВыберите действие:",
 		mainMenuKeyboard(),
-	)
+	); err != nil {
+		log.Printf("sendMainMenu chatID=%d: %v", chatID, err)
+	}
 }
 
 func (h *Handler) handleMenuCallback(ctx context.Context, cb *Callback, chatID int64) {

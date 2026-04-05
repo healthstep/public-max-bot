@@ -76,24 +76,55 @@ func NewWebhookRequest(ctx context.Context, r *http.Request) (context.Context, W
 	if err != nil {
 		return ctx, WebhookRequest{}, err
 	}
+	log.Printf("max webhook raw body: %s", string(body))
 	var update Update
-	_ = json.Unmarshal(body, &update)
+	if err := json.Unmarshal(body, &update); err != nil {
+		log.Printf("max webhook unmarshal error: %v", err)
+	}
+	log.Printf("max webhook parsed: update_type=%q sender_id=%d text=%q payload=%q",
+		update.UpdateType,
+		func() int64 {
+			if update.Message != nil {
+				return update.Message.Sender.UserID
+			}
+			return 0
+		}(),
+		func() string {
+			if update.Message != nil {
+				return update.Message.Body.Text
+			}
+			return ""
+		}(),
+		func() string {
+			if update.Callback != nil {
+				return update.Callback.Payload
+			}
+			return ""
+		}(),
+	)
 	return ctx, WebhookRequest{Update: update}, nil
 }
 
 // HandleWebhook is the resty endpoint handler for POST /max/webhook.
 func (h *Handler) HandleWebhook(ctx context.Context, req WebhookRequest) (responses.Response, int) {
+	log.Printf("max HandleWebhook: update_type=%q", req.Update.UpdateType)
 	switch req.Update.UpdateType {
 	case "message_created":
 		if req.Update.Message != nil {
 			h.handleMessage(ctx, req.Update.Message)
+		} else {
+			log.Printf("max HandleWebhook: message_created but Message is nil")
 		}
 	case "message_callback":
 		if req.Update.Callback != nil {
 			h.handleCallback(ctx, req.Update.Callback)
+		} else {
+			log.Printf("max HandleWebhook: message_callback but Callback is nil")
 		}
 	case "bot_started":
 		h.handleBotStarted(ctx, &req.Update)
+	default:
+		log.Printf("max HandleWebhook: unhandled update_type=%q", req.Update.UpdateType)
 	}
 	return &responses.SuccessResponse{Success: true}, 200
 }
@@ -182,6 +213,7 @@ func (h *Handler) handleCallback(ctx context.Context, cb *Callback) {
 		}
 	}
 	if chatID == 0 {
+		log.Printf("max handleCallback: could not resolve chatID for user %d, payload=%q", cb.User.UserID, cb.Payload)
 		return
 	}
 
