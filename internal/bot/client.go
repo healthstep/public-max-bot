@@ -91,9 +91,8 @@ func (c *Client) SetWebhook(webhookURL string) error {
 }
 
 func (c *Client) AnswerCallback(callbackID string) error {
-	_, err := c.doRequest("POST", "/answers/callback", map[string]string{
-		"callback_id": callbackID,
-	})
+	// MAX API: callback_id goes as a query parameter, body can be empty.
+	_, err := c.doRequest("POST", fmt.Sprintf("/answers?callback_id=%s", callbackID), nil)
 	return err
 }
 
