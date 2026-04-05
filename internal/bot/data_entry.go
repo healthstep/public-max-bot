@@ -106,6 +106,11 @@ func (h *Handler) handleDataCallback(ctx context.Context, cb *Callback, chatID i
 				"Отправьте **+**, если у вас уже есть **%s**, и **-**, если нет.\n\n_Отправьте «отмена» чтобы сбросить все ваши данные._",
 				name,
 			)
+		case "boolean":
+			prompt = fmt.Sprintf(
+				"Отправьте **+**, если результат **%s** положительный, и **-**, если отрицательный.\n\n_Отправьте «отмена» чтобы сбросить все ваши данные._",
+				name,
+			)
 		default:
 			prompt = fmt.Sprintf(
 				"Введите число для показателя **%s**:\n\n_Отправьте «отмена» чтобы сбросить все ваши данные._",
@@ -167,6 +172,17 @@ func (h *Handler) handleNumericInput(ctx context.Context, msg *Message, pending 
 			return
 		default:
 			_ = h.client.SendMessage(chatID, "Пожалуйста, отправьте **+** или **-**.", nil)
+			pendingInput.Store(maxUserID, pending)
+			return
+		}
+	case "boolean":
+		switch text {
+		case "+":
+			value = "1"
+		case "-":
+			value = "0"
+		default:
+			_ = h.client.SendMessage(chatID, "Пожалуйста, отправьте **+** (положительный) или **-** (отрицательный).", nil)
 			pendingInput.Store(maxUserID, pending)
 			return
 		}
