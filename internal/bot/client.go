@@ -29,11 +29,6 @@ func NewClient(token string) *Client {
 func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 	u, _ := url.Parse(c.baseURL + path)
 
-	// MAX platform API requires token as query parameter.
-	q := u.Query()
-	q.Set("access_token", c.token)
-	u.RawQuery = q.Encode()
-
 	var reqBody io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -47,6 +42,8 @@ func (c *Client) doRequest(method, path string, body any) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
+	// MAX platform API: token passed directly as Authorization header value (no "Bearer" prefix).
+	req.Header.Set("Authorization", c.token)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
