@@ -24,7 +24,7 @@ func (h *Handler) getUserSex(ctx context.Context, maxUserID string) string {
 	return resp.GetSex()
 }
 
-// handleAddData shows the flat list of available criteria.
+// handleAddData shows the list of criteria groups.
 func (h *Handler) handleAddData(ctx context.Context, cb *Callback, chatID int64) {
 	maxUserID := strconv.FormatInt(cb.User.UserID, 10)
 	chat, err := h.chatRepo.FindByMaxUserID(ctx, maxUserID)
@@ -35,7 +35,11 @@ func (h *Handler) handleAddData(ctx context.Context, cb *Callback, chatID int64)
 
 	userSex := h.getUserSex(ctx, maxUserID)
 
-	resp, err := h.healthClient.ListCriteria(ctx, &healthpb.ListCriteriaRequest{
+	// Fetch groups.
+	groupResp, _ := h.healthClient.ListGroups(ctx, &healthpb.ListGroupsRequest{})
+
+	// Fetch criteria.
+	criteriaResp, err := h.healthClient.ListCriteria(ctx, &healthpb.ListCriteriaRequest{
 		UserId:  *chat.UserID,
 		UserSex: userSex,
 	})
@@ -45,43 +49,163 @@ func (h *Handler) handleAddData(ctx context.Context, cb *Callback, chatID int64)
 		return
 	}
 
-	if len(resp.GetCriteria()) == 0 {
-		_ = h.client.SendMessage(chatID, "Нет доступных показателей.", nil)
-		return
+	// Get user values for ✅ markers.
+	filledMap := make(map[string]bool)
+	ucResp, err := h.healthClient.GetUserCriteria(ctx, &healthpb.GetUserCriteriaRequest{
+		UserId: *chat.UserID, UserSex: userSex,
+	})
+	if err == nil {
+		for _, e := range ucResp.GetEntries() {
+			if e.GetValue() != "" {
+				filledMap[e.GetCriterionId()] = true
+			}
+		}
 	}
 
 	// Cache names and input types.
-	for _, c := range resp.GetCriteria() {
+	for _, c := range criteriaResp.GetCriteria() {
 		criterionNames.Store(c.GetId(), c.GetName())
 		criterionInputTypes.Store(c.GetId(), c.GetInputType())
 	}
 
+	// Group criteria by group_id.
+	byGroup := make(map[string][]*healthpb.Criterion)
+	ungrouped := []*healthpb.Criterion{}
+	for _, c := range criteriaResp.GetCriteria() {
+		gid := c.GetGroupId()
+		if gid == "" {
+			ungrouped = append(ungrouped, c)
+		} else {
+			byGroup[gid] = append(byGroup[gid], c)
+		}
+	}
+
+	groups := groupResp.GetGroups()
+	if len(groups) == 0 {
+		h.showFlatCriteriaList(chatID, criteriaResp.GetCriteria(), filledMap)
+		return
+	}
+
 	var rows [][]Button
-	for _, c := range resp.GetCriteria() {
-		icon := criterionLevelIcon(int(c.GetLevel()))
+	for _, g := range groups {
+		items := byGroup[g.GetId()]
+		if len(items) == 0 {
+			continue
+		}
+		total := len(items)
+		filled := 0
+		for _, c := range items {
+			if filledMap[c.GetId()] {
+				filled++
+			}
+		}
+		label := fmt.Sprintf("%s (%d/%d)", g.GetName(), filled, total)
 		rows = append(rows, []Button{{
 			Type:    "callback",
-			Text:    icon + " " + c.GetName(),
+			Text:    label,
+			Payload: "data:group:" + g.GetId(),
+		}})
+		criterionGroups.Store(g.GetId(), items)
+	}
+	if len(ungrouped) > 0 {
+		rows = append(rows, []Button{{
+			Type:    "callback",
+			Text:    "Другое",
+			Payload: "data:group:__ungrouped",
+		}})
+		criterionGroups.Store("__ungrouped", ungrouped)
+	}
+	rows = append(rows, []Button{{Type: "callback", Text: "◀️ Назад", Payload: "menu:back"}})
+
+	prompt := "➕ **Добавить данные**\n\nВыберите группу показателей:\n\n_Отправьте «отмена» в любой момент, чтобы сбросить все ваши данные._"
+	_ = h.client.SendMessage(chatID, prompt, &InlineKeyboard{Buttons: rows})
+}
+
+// handleGroupCallback shows criteria within a selected group.
+func (h *Handler) handleGroupCallback(ctx context.Context, cb *Callback, chatID int64, groupID string) {
+	maxUserID := strconv.FormatInt(cb.User.UserID, 10)
+
+	val, ok := criterionGroups.Load(groupID)
+	if !ok {
+		_ = h.client.SendMessage(chatID, "Группа не найдена.", nil)
+		return
+	}
+	criteria := val.([]*healthpb.Criterion)
+
+	// Get user values.
+	chat, _ := h.chatRepo.FindByMaxUserID(ctx, maxUserID)
+	filledMap := make(map[string]bool)
+	if chat.UserID != nil {
+		userSex := h.getUserSex(ctx, maxUserID)
+		ucResp, err := h.healthClient.GetUserCriteria(ctx, &healthpb.GetUserCriteriaRequest{
+			UserId: *chat.UserID, UserSex: userSex,
+		})
+		if err == nil {
+			for _, e := range ucResp.GetEntries() {
+				if e.GetValue() != "" {
+					filledMap[e.GetCriterionId()] = true
+				}
+			}
+		}
+	}
+
+	var rows [][]Button
+	for _, c := range criteria {
+		label := c.GetName()
+		if filledMap[c.GetId()] {
+			label = "✅ " + label
+		}
+		rows = append(rows, []Button{{
+			Type:    "callback",
+			Text:    label,
+			Payload: "data:select:" + c.GetId(),
+		}})
+	}
+	rows = append(rows, []Button{{Type: "callback", Text: "◀️ Назад", Payload: "data:groups:back"}})
+	_ = h.client.SendMessage(chatID, "Выберите показатель:", &InlineKeyboard{Buttons: rows})
+}
+
+// showFlatCriteriaList renders a flat (ungrouped) criteria list.
+func (h *Handler) showFlatCriteriaList(chatID int64, criteria []*healthpb.Criterion, filledMap map[string]bool) {
+	if len(criteria) == 0 {
+		_ = h.client.SendMessage(chatID, "Нет доступных показателей.", nil)
+		return
+	}
+	var rows [][]Button
+	for _, c := range criteria {
+		label := c.GetName()
+		if filledMap[c.GetId()] {
+			label = "✅ " + label
+		}
+		rows = append(rows, []Button{{
+			Type:    "callback",
+			Text:    label,
 			Payload: "data:select:" + c.GetId(),
 		}})
 	}
 	rows = append(rows, []Button{{Type: "callback", Text: "◀️ Назад", Payload: "menu:back"}})
-
-	prompt := "➕ **Добавить данные**\n\nВыберите показатель:\n\n_Отправьте «отмена» в любой момент, чтобы сбросить все ваши данные._"
-	_ = h.client.SendMessage(chatID, prompt, &InlineKeyboard{Buttons: rows})
+	_ = h.client.SendMessage(chatID, "Выберите показатель:", &InlineKeyboard{Buttons: rows})
 }
 
 // handleDataCallback handles data:* callbacks.
 func (h *Handler) handleDataCallback(ctx context.Context, cb *Callback, chatID int64) {
 	parts := strings.SplitN(cb.Payload, ":", 3)
-	if len(parts) < 3 {
+	if len(parts) < 2 {
 		return
 	}
 	subType := parts[1]
-	value := parts[2]
+	value := ""
+	if len(parts) > 2 {
+		value = parts[2]
+	}
 	maxUserID := strconv.FormatInt(cb.User.UserID, 10)
 
 	switch subType {
+	case "group":
+		h.handleGroupCallback(ctx, cb, chatID, value)
+	case "groups":
+		// "data:groups:back" → go back to groups list
+		h.handleAddData(ctx, cb, chatID)
 	case "select":
 		// value = criterionID
 		name := ""
@@ -118,7 +242,7 @@ func (h *Handler) handleDataCallback(ctx context.Context, cb *Callback, chatID i
 			)
 		}
 		_ = h.client.SendMessage(chatID, prompt, &InlineKeyboard{Buttons: [][]Button{
-			{{Type: "callback", Text: "◀️ Назад", Payload: "menu:back"}},
+			{{Type: "callback", Text: "◀️ Назад", Payload: "data:groups:back"}},
 		}})
 	}
 }

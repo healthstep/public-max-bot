@@ -23,8 +23,11 @@ var pendingInput sync.Map
 // criterionNames caches criterionID -> criterionName to avoid bloated callback payloads.
 var criterionNames sync.Map
 
-// criterionInputTypes caches criterionID -> inputType ("numeric" or "check").
+// criterionInputTypes caches criterionID -> inputType ("numeric", "check", "boolean").
 var criterionInputTypes sync.Map
+
+// criterionGroups caches groupID -> []*healthpb.Criterion for group-based navigation.
+var criterionGroups sync.Map
 
 type PendingInput struct {
 	CriterionID   string
@@ -222,6 +225,8 @@ func (h *Handler) handleCallback(ctx context.Context, cb *Callback) {
 		h.handleInputCallback(ctx, cb, chatID)
 	case strings.HasPrefix(payload, "onboard:"):
 		h.handleOnboardingCallback(ctx, cb, chatID)
+	case payload == "rec:weekly":
+		h.handleWeeklyRecommendations(ctx, cb, chatID)
 	case strings.HasPrefix(payload, "rec:"):
 		h.handleRecommendations(ctx, cb, chatID)
 	}
