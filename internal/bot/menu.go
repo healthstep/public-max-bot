@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"log"
+	"strconv"
 )
 
 func mainMenuKeyboard() *InlineKeyboard {
@@ -10,7 +11,7 @@ func mainMenuKeyboard() *InlineKeyboard {
 		Buttons: [][]Button{
 			{{Type: "callback", Text: "➕ Добавить данные", Payload: "menu:add_data"}},
 			{{Type: "callback", Text: "📊 Мой прогресс", Payload: "menu:progress"}},
-			{{Type: "callback", Text: "💡 Рекомендации", Payload: "menu:recommendations"}},
+			{{Type: "callback", Text: "📅 Рекомендации недели", Payload: "menu:weekly_recs"}},
 		},
 	}
 }
@@ -30,8 +31,9 @@ func (h *Handler) handleMenuCallback(ctx context.Context, cb *Callback, chatID i
 		h.handleAddData(ctx, cb, chatID)
 	case "menu:progress":
 		h.handleProgress(ctx, cb, chatID)
-	case "menu:recommendations":
-		h.handleRecommendations(ctx, cb, chatID)
+	case "menu:weekly_recs":
+		maxUserID := strconv.FormatInt(cb.User.UserID, 10)
+		h.handleWeeklyRecommendations(ctx, chatID, maxUserID)
 	case "menu:back":
 		h.sendMainMenu(ctx, chatID)
 	case "menu:back_analysis":

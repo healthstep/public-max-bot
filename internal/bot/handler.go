@@ -226,8 +226,7 @@ func (h *Handler) handleCallback(ctx context.Context, cb *Callback) {
 	case strings.HasPrefix(payload, "onboard:"):
 		h.handleOnboardingCallback(ctx, cb, chatID)
 	case payload == "rec:weekly":
-		h.handleWeeklyRecommendations(ctx, cb, chatID)
-	case strings.HasPrefix(payload, "rec:"):
-		h.handleRecommendations(ctx, cb, chatID)
+		maxUserID := strconv.FormatInt(cb.User.UserID, 10)
+		h.handleWeeklyRecommendations(ctx, chatID, maxUserID)
 	}
 }
