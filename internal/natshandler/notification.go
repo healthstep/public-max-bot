@@ -11,11 +11,17 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
+// NotificationMessage matches the format published by core-health SendNotification.
 type NotificationMessage struct {
-	UserID string `json:"user_id"`
-	Title  string `json:"title"`
-	Text   string `json:"text"`
-	Type   string `json:"type"`
+	UserID           string `json:"user_id"`
+	NotificationType string `json:"notification_type"`
+	TemplateCode     string `json:"template_code"`
+	PayloadJSON      string `json:"payload_json"`
+}
+
+type notificationPayload struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
 }
 
 type NotificationHandler struct {
@@ -35,24 +41,33 @@ func (h *NotificationHandler) Subscribe(nc *nats.Conn) error {
 			return
 		}
 
-		chat, err := h.chatRepo.FindByUserID(context.Background(), notif.UserID)
-		if err != nil {
-			log.Printf("find chat for user %s: %v", notif.UserID, err)
+		var payload notificationPayload
+		if err := json.Unmarshal([]byte(notif.PayloadJSON), &payload); err != nil {
+			log.Printf("nats notification.max payload unmarshal user=%s: %v", notif.UserID, err)
 			return
 		}
-		if chat.ChatID == nil {
+
+		chat, err := h.chatRepo.FindByUserID(context.Background(), notif.UserID)
+		if err != nil {
+			log.Printf("nats notification.max: chat not found for user %s: %v", notif.UserID, err)
+			return
+		}
+		if chat == nil || chat.ChatID == nil {
+			log.Printf("nats notification.max: no chat_id for user %s", notif.UserID)
 			return
 		}
 
 		chatID, err := strconv.ParseInt(*chat.ChatID, 10, 64)
 		if err != nil {
-			log.Printf("parse chat_id %s: %v", *chat.ChatID, err)
+			log.Printf("nats notification.max: parse chat_id %s: %v", *chat.ChatID, err)
 			return
 		}
 
-		text := bot.BuildNotificationMessage(notif.Title, notif.Text)
+		text := bot.BuildNotificationMessage(payload.Title, payload.Body)
 		if err := h.botClient.SendMessage(chatID, text, nil); err != nil {
-			log.Printf("send notification to chat %d: %v", chatID, err)
+			log.Printf("nats notification.max: send to chat %d user %s: %v", chatID, notif.UserID, err)
+		} else {
+			log.Printf("nats notification.max: sent to chat %d user %s type=%s", chatID, notif.UserID, notif.TemplateCode)
 		}
 	})
 	return err
