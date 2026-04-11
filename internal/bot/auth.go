@@ -17,8 +17,8 @@ func (h *Handler) handleStartWithKey(ctx context.Context, msg *Message, key stri
 
 	chat, _ := h.chatRepo.FindByMaxUserID(ctx, maxUserID)
 	if chat != nil && chat.UserID != nil {
-		_ = h.client.SendMessage(chatID, "Вы уже зарегистрированы! 🎉", nil)
-		h.sendMainMenu(ctx, chatID)
+		// Already registered — issue a fresh token for the browser session.
+		h.handleLogin(ctx, chatID, *chat.UserID, key)
 		return
 	}
 
@@ -62,6 +62,36 @@ func (h *Handler) handleStartWithKey(ctx context.Context, msg *Message, key stri
 		"Добро пожаловать в **ЗдравоШаг**! 👋\n\nДля завершения регистрации, пожалуйста, поделитесь вашим номером телефона:",
 		kb,
 	)
+}
+
+// handleLogin re-authenticates an already registered user by issuing a new JWT
+// and completing the browser-challenge session (if authKey is provided).
+func (h *Handler) handleLogin(ctx context.Context, chatID int64, userID string, authKey string) {
+	userResp, err := h.usersClient.GetUser(ctx, &userspb.GetUserRequest{UserId: userID})
+	if err != nil {
+		log.Printf("get user for max login: %v", err)
+		_ = h.client.SendMessage(chatID, "Произошла ошибка. Попробуйте позже.", nil)
+		return
+	}
+
+	verifyResp, err := h.usersClient.VerifyPhone(ctx, &userspb.VerifyPhoneRequest{
+		PhoneE164: userResp.GetPhoneE164(),
+		AuthKey:   authKey,
+		Platform:  "max",
+	})
+	if err != nil {
+		log.Printf("max login verify phone: %v", err)
+		_ = h.client.SendMessage(chatID, "Произошла ошибка. Попробуйте позже.", nil)
+		return
+	}
+
+	text := "С возвращением! Вы успешно авторизованы."
+	if h.siteURL != "" && verifyResp.GetToken() != "" {
+		loginURL := h.siteURL + "/auth?token=" + verifyResp.GetToken()
+		text += "\n\n[Войти на сайт одним нажатием](" + loginURL + ")"
+	}
+	_ = h.client.SendMessage(chatID, text, nil)
+	h.sendMainMenu(ctx, chatID)
 }
 
 func (h *Handler) handleStartWithoutKey(ctx context.Context, msg *Message) {
