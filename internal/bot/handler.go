@@ -191,6 +191,11 @@ func (h *Handler) handleMessage(ctx context.Context, msg *Message) {
 		return
 	}
 
+	if text == "/password" {
+		h.handlePasswordCommand(ctx, msg)
+		return
+	}
+
 	h.sendMainMenu(ctx, msg.Recipient.ChatID)
 }
 

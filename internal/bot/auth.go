@@ -156,12 +156,61 @@ func (h *Handler) handleContact(ctx context.Context, msg *Message, phone string)
 	}
 
 	welcomeMsg := "Регистрация завершена! ✅\n\nДобро пожаловать в **ЗдравоШаг**!"
+
+	if verifyResp.GetInitialPassword() != "" {
+		welcomeMsg += "\n\n🔑 **Ваш пароль для входа на сайт:** `" + verifyResp.GetInitialPassword() + "`\n" +
+			"Сохраните его! Изменить можно командой /password"
+	}
+
 	if h.siteURL != "" && verifyResp.GetToken() != "" {
 		loginURL := h.siteURL + "/auth?token=" + verifyResp.GetToken()
-		welcomeMsg += "\n\n🌐 [Войти на сайт одним нажатием](" + loginURL + ")"
+		welcomeMsg += "\n\n🌐 [Войти на сайт](" + loginURL + ")"
+	} else if h.siteURL != "" {
+		welcomeMsg += "\n\n🌐 Сайт: " + h.siteURL
 	}
+
 	_ = h.client.SendMessage(chatID, welcomeMsg, nil)
 	h.sendOnboarding(ctx, chatID)
+}
+
+// handlePasswordCommand lets the user set a new password.
+// Usage: /password <newpassword>
+// When called with no argument, shows instructions.
+func (h *Handler) handlePasswordCommand(ctx context.Context, msg *Message) {
+	maxUserID := strconv.FormatInt(msg.Sender.UserID, 10)
+	chatID := msg.Recipient.ChatID
+
+	chat, _ := h.chatRepo.FindByMaxUserID(ctx, maxUserID)
+	if chat == nil || chat.UserID == nil {
+		_ = h.client.SendMessage(chatID, "Вы не авторизованы. Пройдите регистрацию через /start", nil)
+		return
+	}
+
+	text := strings.TrimSpace(msg.Body.Text)
+	parts := strings.SplitN(text, " ", 2)
+	if len(parts) < 2 || strings.TrimSpace(parts[1]) == "" {
+		_ = h.client.SendMessage(chatID,
+			"Чтобы задать новый пароль, отправьте:\n\n`/password НовыйПароль`\n\nМинимум 8 символов.", nil)
+		return
+	}
+
+	newPassword := strings.TrimSpace(parts[1])
+	if len(newPassword) < 8 {
+		_ = h.client.SendMessage(chatID, "Пароль должен содержать минимум 8 символов.", nil)
+		return
+	}
+
+	_, err := h.usersClient.ChangePassword(ctx, &userspb.ChangePasswordRequest{
+		UserId:      *chat.UserID,
+		NewPassword: newPassword,
+	})
+	if err != nil {
+		log.Printf("change password for %s: %v", *chat.UserID, err)
+		_ = h.client.SendMessage(chatID, "Не удалось изменить пароль. Попробуйте позже.", nil)
+		return
+	}
+
+	_ = h.client.SendMessage(chatID, "✅ Пароль успешно изменён! Используйте его для входа на сайт.", nil)
 }
 
 // extractPhone tries to pull a phone number from a contact attachment or text.
