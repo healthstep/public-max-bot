@@ -7,17 +7,8 @@ import (
 	"github.com/helthtech/public-max-bot/internal/obs"
 )
 
-func (h *Handler) handleUploadAnalyses(ctx context.Context, chatID int64) {
-	text := "Загрузите PDF с анализами (до 5 файлов) в **личном кабинете** — раздел «Профиль»."
-	if h.siteURL != "" {
-		text += "\n\n[Открыть профиль](" + h.siteURL + "/profile)"
-	}
-	kb := &InlineKeyboard{Buttons: [][]Button{
-		{{Type: "callback", Text: "◀️ Назад в меню", Payload: "menu:back"}},
-	}}
-	if err := h.client.SendMessage(chatID, text, kb); err != nil {
-		obs.BG("max").Error(err, "handleUploadAnalyses", "chat_id", chatID)
-	}
+func (h *Handler) handleUploadAnalyses(ctx context.Context, chatID int64, maxUserID string) {
+	h.startMaxLabCollection(ctx, chatID, maxUserID)
 }
 
 func mainMenuKeyboard() *InlineKeyboard {
@@ -50,7 +41,8 @@ func (h *Handler) handleMenuCallback(ctx context.Context, cb *Callback, chatID i
 		maxUserID := strconv.FormatInt(cb.User.UserID, 10)
 		h.handleWeeklyRecommendations(ctx, chatID, maxUserID)
 	case "menu:upload_analyses":
-		h.handleUploadAnalyses(ctx, chatID)
+		maxUserID := strconv.FormatInt(cb.User.UserID, 10)
+		h.handleUploadAnalyses(ctx, chatID, maxUserID)
 	case "menu:back":
 		h.sendMainMenu(ctx, chatID)
 	case "menu:back_analysis":

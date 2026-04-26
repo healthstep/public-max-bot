@@ -2,11 +2,13 @@ package bot
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 const defaultBaseURL = "https://platform-api.max.ru"
@@ -102,6 +104,74 @@ func (c *Client) GetMe() (json.RawMessage, error) {
 		return nil, err
 	}
 	return data, nil
+}
+
+// DownloadFileGET performs GET on fileURL and returns body (Authorization: bot token as for platform API).
+func (c *Client) DownloadFileGET(ctx context.Context, fileURL string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", c.token)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		slurp, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("download %d: %s", resp.StatusCode, string(slurp))
+	}
+	return io.ReadAll(resp.Body)
+}
+
+// DownloadUserFileInMax fetches a file the user sent to the bot, using url or token from the attachment payload.
+func (c *Client) DownloadUserFileInMax(ctx context.Context, fileURL, token string) ([]byte, error) {
+	if u := strings.TrimSpace(fileURL); u != "" {
+		return c.DownloadFileGET(ctx, u)
+	}
+	if t := strings.TrimSpace(token); t != "" {
+		for _, p := range []string{
+			"/files/" + url.PathEscape(t),
+			"/files?token=" + url.QueryEscape(t),
+		} {
+			if data, err := c.doRequestBytes(ctx, http.MethodGet, p, nil); err == nil {
+				return data, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("no file url or downloadable token in message")
+}
+
+// doRequestBytes is like doRequest but returns body as bytes (used for file binary responses).
+func (c *Client) doRequestBytes(ctx context.Context, method, path string, body any) ([]byte, error) {
+	u, _ := url.Parse(c.baseURL + path)
+	var reqBody io.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("marshal request: %w", err)
+		}
+		reqBody = bytes.NewReader(data)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), reqBody)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", c.token)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	b, rerr := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(b))
+	}
+	return b, rerr
 }
 
 // --- Request / response types for the MAX platform API ---

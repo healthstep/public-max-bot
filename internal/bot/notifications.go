@@ -20,6 +20,7 @@ func BuildNotificationMessage(title, text string) string {
 
 // handleWeeklyRecommendations shows the user's weekly recommendation plan.
 func (h *Handler) handleWeeklyRecommendations(ctx context.Context, chatID int64, maxUserID string) {
+	h.clearMaxLabUpload(maxUserID)
 	chat, err := h.chatRepo.FindByMaxUserID(ctx, maxUserID)
 	if err != nil || chat.UserID == nil {
 		_ = h.client.SendMessage(chatID, "Пожалуйста, сначала зарегистрируйтесь с помощью /start", nil)

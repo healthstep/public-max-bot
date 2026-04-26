@@ -12,6 +12,7 @@ import (
 
 func (h *Handler) handleProgress(ctx context.Context, cb *Callback, chatID int64) {
 	maxUserID := strconv.FormatInt(cb.User.UserID, 10)
+	h.clearMaxLabUpload(maxUserID)
 	chat, err := h.chatRepo.FindByMaxUserID(ctx, maxUserID)
 	if err != nil || chat.UserID == nil {
 		_ = h.client.SendMessage(chatID, "Пожалуйста, сначала зарегистрируйтесь с помощью /start", nil)

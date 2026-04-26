@@ -13,6 +13,7 @@ import (
 
 func (h *Handler) handleStartWithKey(ctx context.Context, msg *Message, key string) {
 	maxUserID := strconv.FormatInt(msg.Sender.UserID, 10)
+	h.clearMaxLabUpload(maxUserID)
 	chatID := msg.Recipient.ChatID
 
 	chat, _ := h.chatRepo.FindByMaxUserID(ctx, maxUserID)
@@ -96,6 +97,7 @@ func (h *Handler) handleLogin(ctx context.Context, chatID int64, userID string, 
 
 func (h *Handler) handleStartWithoutKey(ctx context.Context, msg *Message) {
 	maxUserID := strconv.FormatInt(msg.Sender.UserID, 10)
+	h.clearMaxLabUpload(maxUserID)
 	chatID := msg.Recipient.ChatID
 
 	chat, _ := h.chatRepo.FindByMaxUserID(ctx, maxUserID)

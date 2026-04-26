@@ -174,6 +174,7 @@ func (h *Handler) handleMessage(ctx context.Context, msg *Message) {
 	// "cancel" resets all criteria.
 	if strings.EqualFold(text, "отмена") || strings.EqualFold(text, "cancel") {
 		pendingInput.Delete(maxUserID)
+		h.clearMaxLabUpload(maxUserID)
 		h.handleCancelAll(ctx, msg)
 		return
 	}
@@ -182,6 +183,10 @@ func (h *Handler) handleMessage(ctx context.Context, msg *Message) {
 	if val, ok := pendingInput.LoadAndDelete(maxUserID); ok {
 		pending := val.(PendingInput)
 		h.handleNumericInput(ctx, msg, pending)
+		return
+	}
+
+	if h.tryHandleMaxLabMessage(ctx, msg) {
 		return
 	}
 
@@ -234,6 +239,8 @@ func (h *Handler) handleCallback(ctx context.Context, cb *Callback) {
 		h.handleInputCallback(ctx, cb, chatID)
 	case strings.HasPrefix(payload, "onboard:"):
 		h.handleOnboardingCallback(ctx, cb, chatID)
+	case strings.HasPrefix(payload, "lab:"):
+		h.handleLabMaxCallbacks(ctx, cb, chatID)
 	case payload == "rec:weekly":
 		maxUserID := strconv.FormatInt(cb.User.UserID, 10)
 		h.handleWeeklyRecommendations(ctx, chatID, maxUserID)

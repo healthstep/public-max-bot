@@ -27,6 +27,7 @@ func (h *Handler) getUserSex(ctx context.Context, maxUserID string) string {
 // handleAddData shows the list of criteria groups.
 func (h *Handler) handleAddData(ctx context.Context, cb *Callback, chatID int64) {
 	maxUserID := strconv.FormatInt(cb.User.UserID, 10)
+	h.clearMaxLabUpload(maxUserID)
 	chat, err := h.chatRepo.FindByMaxUserID(ctx, maxUserID)
 	if err != nil || chat.UserID == nil {
 		_ = h.client.SendMessage(chatID, "Пожалуйста, сначала зарегистрируйтесь с помощью /start", nil)
@@ -250,6 +251,7 @@ func (h *Handler) handleDataCallback(ctx context.Context, cb *Callback, chatID i
 // handleCancelAll resets all user criteria.
 func (h *Handler) handleCancelAll(ctx context.Context, msg *Message) {
 	maxUserID := strconv.FormatInt(msg.Sender.UserID, 10)
+	h.clearMaxLabUpload(maxUserID)
 	chat, err := h.chatRepo.FindByMaxUserID(ctx, maxUserID)
 	if err != nil || chat.UserID == nil {
 		_ = h.client.SendMessage(msg.Recipient.ChatID, "Вы не авторизованы.", nil)
