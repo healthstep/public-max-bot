@@ -1,7 +1,15 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:1.25-alpine AS build
 WORKDIR /build
 
-RUN apk add --no-cache git
+RUN apk update && apk add --no-cache \
+    git \
+    gcc \
+    musl-dev
+
+ARG GITHUB_TOKEN
+RUN echo "machine github.com login porebric password ${GITHUB_TOKEN}" > /root/.netrc && chmod 600 /root/.netrc
+
+ENV GOPRIVATE=github.com
 
 COPY core-users/go.mod core-users/go.sum ./core-users/
 COPY core-health/go.mod core-health/go.sum ./core-health/
@@ -16,12 +24,14 @@ COPY core-health/ ./core-health/
 COPY public-max-bot/ ./public-max-bot/
 
 WORKDIR /build/public-max-bot
-RUN CGO_ENABLED=0 go build -o /app/public-max-bot ./cmd/public-max-bot
+RUN go mod tidy
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o /app/public-max-bot ./cmd/public-max-bot
 
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
-COPY --from=builder /app/public-max-bot .
-COPY --from=builder /build/public-max-bot/config/configs_keys.yml ./config/configs_keys.yml
+COPY --from=build /app/public-max-bot .
+COPY --from=build /build/public-max-bot/config/configs_keys.yml ./config/configs_keys.yml
 EXPOSE 8082
+ENV APP_ENV=production
 CMD ["./public-max-bot"]

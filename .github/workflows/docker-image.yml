@@ -25,7 +25,7 @@ jobs:
           token: ${{ secrets.GOD_TOKEN }}
           path: core-health
       - name: Build the Docker image
-        run: docker build . --file public-max-bot/Dockerfile --tag ${{ secrets.DOCKER_USER }}/public-max-bot:${{ github.sha }}
+        run: docker build . --file public-max-bot/Dockerfile --build-arg GITHUB_TOKEN=${{ secrets.GOD_TOKEN }} --tag ${{ secrets.DOCKER_USER }}/public-max-bot:${{ github.sha }}
 
   build-and-update:
     if: github.ref == 'refs/heads/main'
@@ -47,7 +47,7 @@ jobs:
       - name: Docker login
         run: docker login -u ${{ secrets.DOCKER_USER }} -p ${{ secrets.DOCKER_PASSWORD }}
       - name: Build the Docker image
-        run: docker build . --file public-max-bot/Dockerfile --tag ${{ secrets.DOCKER_USER }}/public-max-bot:${{ github.sha }}
+        run: docker build . --file public-max-bot/Dockerfile --build-arg GITHUB_TOKEN=${{ secrets.GOD_TOKEN }} --tag ${{ secrets.DOCKER_USER }}/public-max-bot:${{ github.sha }}
       - name: Docker Push
         run: |
           docker push ${{ secrets.DOCKER_USER }}/public-max-bot:${{ github.sha }}
