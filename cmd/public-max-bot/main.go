@@ -15,6 +15,7 @@ import (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	defer obs.RecoverAndExit()
 
 	keysReader, err := os.Open("config/configs_keys.yml")
 	if err != nil {
