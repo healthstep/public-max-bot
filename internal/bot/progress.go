@@ -3,11 +3,11 @@ package bot
 import (
 	"context"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 
 	healthpb "github.com/helthtech/core-health/pkg/proto/health"
+	"github.com/porebric/logger"
 )
 
 func (h *Handler) handleProgress(ctx context.Context, cb *Callback, chatID int64) {
@@ -22,14 +22,14 @@ func (h *Handler) handleProgress(ctx context.Context, cb *Callback, chatID int64
 
 	prog, err := h.healthClient.GetProgress(ctx, &healthpb.GetProgressRequest{UserId: userID})
 	if err != nil {
-		log.Printf("get progress for %s: %v", userID, err)
+		logger.Error(ctx, err, "get progress for user", "user_id", userID)
 		_ = h.client.SendMessage(chatID, "Не удалось загрузить прогресс. Попробуйте позже.", nil)
 		return
 	}
 
 	criteria, err := h.healthClient.GetUserCriteria(ctx, &healthpb.GetUserCriteriaRequest{UserId: userID})
 	if err != nil {
-		log.Printf("get user criteria for %s: %v", userID, err)
+		logger.Error(ctx, err, "get user criteria for user", "user_id", userID)
 		_ = h.client.SendMessage(chatID, "Не удалось загрузить данные. Попробуйте позже.", nil)
 		return
 	}

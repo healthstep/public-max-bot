@@ -3,10 +3,11 @@ package bot
 import (
 	"context"
 	"fmt"
-	"log"
 	"strconv"
 
 	healthpb "github.com/helthtech/core-health/pkg/proto/health"
+	"github.com/helthtech/public-max-bot/internal/obs"
+	"github.com/porebric/logger"
 )
 
 // BuildNotificationMessage formats a notification for sending via the bot.
@@ -29,7 +30,7 @@ func (h *Handler) handleWeeklyRecommendations(ctx context.Context, chatID int64,
 		UserId: *chat.UserID,
 	})
 	if err != nil {
-		log.Printf("get weekly recommendations for %s: %v", *chat.UserID, err)
+		logger.Error(ctx, err, "get weekly recommendations for user", "user_id", *chat.UserID)
 		_ = h.client.SendMessage(chatID, "Не удалось загрузить рекомендации на неделю. Попробуйте позже.", nil)
 		return
 	}
@@ -83,7 +84,7 @@ func recTypeIconMax(t string) string {
 func (h *Handler) SendNotification(chatID int64, title, body string) {
 	text := BuildNotificationMessage(title, body)
 	if err := h.client.SendMessage(chatID, text, nil); err != nil {
-		log.Printf("send notification to chat %d: %v", chatID, err)
+		obs.BG("max").Error(err, "send notification to chat", "chat_id", chatID)
 	}
 }
 

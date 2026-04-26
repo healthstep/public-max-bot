@@ -9,6 +9,8 @@ require (
 	github.com/porebric/configs v1.0.3
 	github.com/porebric/logger v0.1.0
 	github.com/porebric/resty v0.0.6-0.20260213102226-fc22aa7f513e
+	github.com/prometheus/client_golang v1.19.0
+	go.opentelemetry.io/otel/trace v1.33.0
 	google.golang.org/grpc v1.70.0
 	gorm.io/driver/postgres v1.5.11
 	gorm.io/gorm v1.30.0

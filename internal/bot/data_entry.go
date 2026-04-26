@@ -3,12 +3,12 @@ package bot
 import (
 	"context"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 
 	healthpb "github.com/helthtech/core-health/pkg/proto/health"
 	userspb "github.com/helthtech/core-users/pkg/proto/users"
+	"github.com/porebric/logger"
 )
 
 // getUserSex fetches user sex from core-users.
@@ -44,7 +44,7 @@ func (h *Handler) handleAddData(ctx context.Context, cb *Callback, chatID int64)
 		UserSex: userSex,
 	})
 	if err != nil {
-		log.Printf("list criteria: %v", err)
+		logger.Error(ctx, err, "list criteria")
 		_ = h.client.SendMessage(chatID, "Не удалось загрузить список показателей. Попробуйте позже.", nil)
 		return
 	}
@@ -259,7 +259,7 @@ func (h *Handler) handleCancelAll(ctx context.Context, msg *Message) {
 		UserId: *chat.UserID,
 	})
 	if err != nil {
-		log.Printf("reset criteria: %v", err)
+		logger.Error(ctx, err, "reset criteria")
 		_ = h.client.SendMessage(msg.Recipient.ChatID, "Не удалось сбросить данные. Попробуйте позже.", nil)
 		return
 	}
@@ -345,7 +345,7 @@ func (h *Handler) saveCriterionValue(ctx context.Context, chatID int64, maxUserI
 		Source:      "max_bot",
 	})
 	if err != nil {
-		log.Printf("set user criterion: %v", err)
+		logger.Error(ctx, err, "set user criterion")
 		_ = h.client.SendMessage(chatID, "Не удалось сохранить значение. Попробуйте позже.", nil)
 	}
 }

@@ -2,11 +2,11 @@ package bot
 
 import (
 	"context"
-	"log"
 	"strconv"
 	"strings"
 
 	userspb "github.com/helthtech/core-users/pkg/proto/users"
+	"github.com/porebric/logger"
 )
 
 func (h *Handler) sendOnboarding(ctx context.Context, chatID int64) {
@@ -82,6 +82,6 @@ func (h *Handler) updateUserField(ctx context.Context, maxUserID string, apply f
 	req := &userspb.UpdateUserRequest{UserId: *chat.UserID}
 	apply(req)
 	if _, err := h.usersClient.UpdateUser(ctx, req); err != nil {
-		log.Printf("update user %s: %v", *chat.UserID, err)
+		logger.Error(ctx, err, "onboarding update user", "user_id", *chat.UserID)
 	}
 }

@@ -2,8 +2,9 @@ package bot
 
 import (
 	"context"
-	"log"
 	"strconv"
+
+	"github.com/helthtech/public-max-bot/internal/obs"
 )
 
 func (h *Handler) handleUploadAnalyses(ctx context.Context, chatID int64) {
@@ -15,7 +16,7 @@ func (h *Handler) handleUploadAnalyses(ctx context.Context, chatID int64) {
 		{{Type: "callback", Text: "◀️ Назад в меню", Payload: "menu:back"}},
 	}}
 	if err := h.client.SendMessage(chatID, text, kb); err != nil {
-		log.Printf("handleUploadAnalyses chatID=%d: %v", chatID, err)
+		obs.BG("max").Error(err, "handleUploadAnalyses", "chat_id", chatID)
 	}
 }
 
@@ -35,7 +36,7 @@ func (h *Handler) sendMainMenu(ctx context.Context, chatID int64) {
 		"🏥 **ЗдравоШаг** — ваш помощник по здоровью\n\nВыберите действие:",
 		mainMenuKeyboard(),
 	); err != nil {
-		log.Printf("sendMainMenu chatID=%d: %v", chatID, err)
+		obs.BG("max").Error(err, "sendMainMenu", "chat_id", chatID)
 	}
 }
 

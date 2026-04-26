@@ -3,13 +3,14 @@ package boot
 import (
 	"context"
 	"fmt"
-	"log"
 
 	healthpb "github.com/helthtech/core-health/pkg/proto/health"
 	userspb "github.com/helthtech/core-users/pkg/proto/users"
 	"github.com/helthtech/public-max-bot/internal/bot"
 	"github.com/helthtech/public-max-bot/internal/migration"
+	"github.com/helthtech/public-max-bot/internal/middleware"
 	"github.com/helthtech/public-max-bot/internal/natshandler"
+	"github.com/helthtech/public-max-bot/internal/obs"
 	"github.com/helthtech/public-max-bot/internal/repository"
 	"github.com/nats-io/nats.go"
 	"github.com/porebric/configs"
@@ -64,7 +65,7 @@ func Run(ctx context.Context) error {
 	if err := botClient.SetWebhook(webhookURL); err != nil {
 		return fmt.Errorf("set max webhook: %w", err)
 	}
-	log.Printf("max webhook set to %s", webhookURL)
+	obs.L.Info("max webhook set", "url", webhookURL)
 
 	botHandler := bot.NewHandler(botClient, chatRepo, usersClient, healthClient, nc, siteURL)
 
@@ -74,12 +75,11 @@ func Run(ctx context.Context) error {
 	}
 
 	restyerrors.Init(nil)
-	l := logger.New(logger.InfoLevel)
-	router := resty.NewRouter(func() *logger.Logger { return l }, nil)
-
+	router := resty.NewRouter(func() *logger.Logger { return obs.L }, nil)
+	router.MuxRouter().Use(middleware.AccessLog())
 	resty.Endpoint(router, bot.NewWebhookRequest, botHandler.HandleWebhook)
 
-	log.Println("public-max-bot starting")
+	obs.L.Info("public-max-bot starting")
 	resty.RunServer(ctx, router, func(_ context.Context) error {
 		usersConn.Close()
 		healthConn.Close()

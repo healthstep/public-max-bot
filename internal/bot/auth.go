@@ -3,12 +3,12 @@ package bot
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"strconv"
 	"strings"
 
 	userspb "github.com/helthtech/core-users/pkg/proto/users"
 	"github.com/helthtech/public-max-bot/internal/model"
+	"github.com/porebric/logger"
 )
 
 func (h *Handler) handleStartWithKey(ctx context.Context, msg *Message, key string) {
@@ -32,7 +32,7 @@ func (h *Handler) handleStartWithKey(ctx context.Context, msg *Message, key stri
 	if provisionalUserID == "" {
 		createResp, err := h.usersClient.CreateProvisionalUser(ctx, &userspb.CreateProvisionalUserRequest{})
 		if err != nil {
-			log.Printf("create provisional user: %v", err)
+			logger.Error(ctx, err, "create provisional user")
 			_ = h.client.SendMessage(chatID, "Произошла ошибка. Попробуйте позже.", nil)
 			return
 		}
@@ -50,7 +50,7 @@ func (h *Handler) handleStartWithKey(ctx context.Context, msg *Message, key stri
 		chat.Username = &msg.Sender.Username
 	}
 	if err := h.chatRepo.Upsert(ctx, chat); err != nil {
-		log.Printf("upsert chat: %v", err)
+		logger.Error(ctx, err, "upsert chat")
 	}
 
 	kb := &InlineKeyboard{
@@ -69,7 +69,7 @@ func (h *Handler) handleStartWithKey(ctx context.Context, msg *Message, key stri
 func (h *Handler) handleLogin(ctx context.Context, chatID int64, userID string, authKey string) {
 	userResp, err := h.usersClient.GetUser(ctx, &userspb.GetUserRequest{UserId: userID})
 	if err != nil {
-		log.Printf("get user for max login: %v", err)
+		logger.Error(ctx, err, "get user for max login")
 		_ = h.client.SendMessage(chatID, "Произошла ошибка. Попробуйте позже.", nil)
 		return
 	}
@@ -80,7 +80,7 @@ func (h *Handler) handleLogin(ctx context.Context, chatID int64, userID string, 
 		Platform:  "max",
 	})
 	if err != nil {
-		log.Printf("max login verify phone: %v", err)
+		logger.Error(ctx, err, "max login verify phone")
 		_ = h.client.SendMessage(chatID, "Произошла ошибка. Попробуйте позже.", nil)
 		return
 	}
@@ -107,7 +107,7 @@ func (h *Handler) handleStartWithoutKey(ctx context.Context, msg *Message) {
 
 	createResp, err := h.usersClient.CreateProvisionalUser(ctx, &userspb.CreateProvisionalUserRequest{})
 	if err != nil {
-		log.Printf("create provisional user (no key): %v", err)
+		logger.Error(ctx, err, "create provisional user (no key)")
 		_ = h.client.SendMessage(chatID, "Произошла ошибка. Попробуйте позже.", nil)
 		return
 	}
@@ -123,7 +123,7 @@ func (h *Handler) handleStartWithoutKey(ctx context.Context, msg *Message) {
 		chat.Username = &msg.Sender.Username
 	}
 	if err := h.chatRepo.Upsert(ctx, chat); err != nil {
-		log.Printf("upsert chat: %v", err)
+		logger.Error(ctx, err, "upsert chat")
 	}
 
 	kb := &InlineKeyboard{
@@ -162,7 +162,7 @@ func (h *Handler) handleContact(ctx context.Context, msg *Message, phone string)
 		Platform:          "max",
 	})
 	if err != nil {
-		log.Printf("verify phone for %s: %v", maxUserID, err)
+		logger.Error(ctx, err, "verify phone for max", "max_user", maxUserID)
 		_ = h.client.SendMessage(chatID, "Не удалось подтвердить номер. Попробуйте ещё раз.", nil)
 		return
 	}
@@ -172,7 +172,7 @@ func (h *Handler) handleContact(ctx context.Context, msg *Message, phone string)
 	chat.ProvisionalUserID = nil
 	chat.AuthKey = nil
 	if err := h.chatRepo.Upsert(ctx, chat); err != nil {
-		log.Printf("upsert chat after verify: %v", err)
+		logger.Error(ctx, err, "upsert chat after verify")
 	}
 
 	// Publish auth token for the browser session if there was a key.
@@ -235,7 +235,7 @@ func (h *Handler) handlePasswordCommand(ctx context.Context, msg *Message) {
 		NewPassword: newPassword,
 	})
 	if err != nil {
-		log.Printf("change password for %s: %v", *chat.UserID, err)
+		logger.Error(ctx, err, "change password", "user_id", *chat.UserID)
 		_ = h.client.SendMessage(chatID, "Не удалось изменить пароль. Попробуйте позже.", nil)
 		return
 	}

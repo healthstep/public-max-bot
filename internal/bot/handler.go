@@ -3,8 +3,8 @@ package bot
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,8 +12,10 @@ import (
 
 	healthpb "github.com/helthtech/core-health/pkg/proto/health"
 	userspb "github.com/helthtech/core-users/pkg/proto/users"
+	"github.com/helthtech/public-max-bot/internal/obs"
 	"github.com/helthtech/public-max-bot/internal/repository"
 	"github.com/nats-io/nats.go"
+	"github.com/porebric/logger"
 	"github.com/porebric/resty/responses"
 )
 
@@ -74,60 +76,62 @@ func (WebhookRequest) Methods() []string                { return []string{"POST"
 func (WebhookRequest) Path() (string, bool)             { return "/max/webhook", false }
 func (WebhookRequest) String() string                   { return "max-webhook" }
 
+func previewStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "...(truncated)"
+}
+
 func NewWebhookRequest(ctx context.Context, r *http.Request) (context.Context, WebhookRequest, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return ctx, WebhookRequest{}, err
 	}
-	log.Printf("max webhook raw body: %s", string(body))
 	var update Update
+	ctx = obs.WithTrace(ctx)
 	if err := json.Unmarshal(body, &update); err != nil {
-		log.Printf("max webhook unmarshal error: %v", err)
+		logger.Error(ctx, err, "max webhook unmarshal", "body_len", len(body), "body_preview", previewStr(string(body), 2000))
+	} else {
+		logger.Info(ctx, "max webhook request",
+			"body_len", len(body), "update_type", update.UpdateType,
+			"text_preview", previewStr(func() string {
+				if update.Message != nil {
+					return update.Message.Body.Text
+				}
+				return ""
+			}(), 200),
+			"payload", previewStr(func() string {
+				if update.Callback != nil {
+					return update.Callback.Payload
+				}
+				return ""
+			}(), 500),
+		)
 	}
-	log.Printf("max webhook parsed: update_type=%q sender_id=%d text=%q payload=%q",
-		update.UpdateType,
-		func() int64 {
-			if update.Message != nil {
-				return update.Message.Sender.UserID
-			}
-			return 0
-		}(),
-		func() string {
-			if update.Message != nil {
-				return update.Message.Body.Text
-			}
-			return ""
-		}(),
-		func() string {
-			if update.Callback != nil {
-				return update.Callback.Payload
-			}
-			return ""
-		}(),
-	)
 	return ctx, WebhookRequest{Update: update}, nil
 }
 
 // HandleWebhook is the resty endpoint handler for POST /max/webhook.
 func (h *Handler) HandleWebhook(ctx context.Context, req WebhookRequest) (responses.Response, int) {
-	log.Printf("max HandleWebhook: update_type=%q", req.Update.UpdateType)
+	logger.Info(ctx, "max HandleWebhook", "update_type", req.Update.UpdateType)
 	switch req.Update.UpdateType {
 	case "message_created":
 		if req.Update.Message != nil {
 			h.handleMessage(ctx, req.Update.Message)
 		} else {
-			log.Printf("max HandleWebhook: message_created but Message is nil")
+			logger.Warn(ctx, "max HandleWebhook: message_created but Message is nil")
 		}
 	case "message_callback":
 		if req.Update.Callback != nil {
 			h.handleCallback(ctx, req.Update.Callback)
 		} else {
-			log.Printf("max HandleWebhook: message_callback but Callback is nil")
+			logger.Warn(ctx, "max HandleWebhook: message_callback but Callback is nil")
 		}
 	case "bot_started":
 		h.handleBotStarted(ctx, &req.Update)
 	default:
-		log.Printf("max HandleWebhook: unhandled update_type=%q", req.Update.UpdateType)
+		logger.Warn(ctx, "max HandleWebhook: unhandled update_type", "update_type", req.Update.UpdateType)
 	}
 	return &responses.SuccessResponse{Success: true}, 200
 }
@@ -201,7 +205,7 @@ func (h *Handler) handleMessage(ctx context.Context, msg *Message) {
 
 func (h *Handler) handleCallback(ctx context.Context, cb *Callback) {
 	if err := h.client.AnswerCallback(cb.CallbackID); err != nil {
-		log.Printf("answer callback %s: %v", cb.CallbackID, err)
+		logger.Error(ctx, err, "max answer callback", "callback_id", cb.CallbackID)
 	}
 
 	var chatID int64
@@ -216,7 +220,7 @@ func (h *Handler) handleCallback(ctx context.Context, cb *Callback) {
 		}
 	}
 	if chatID == 0 {
-		log.Printf("max handleCallback: could not resolve chatID for user %d, payload=%q", cb.User.UserID, cb.Payload)
+		logger.Error(ctx, fmt.Errorf("no chatID"), "max handleCallback: no chatID", "user_id", cb.User.UserID, "payload", cb.Payload)
 		return
 	}
 

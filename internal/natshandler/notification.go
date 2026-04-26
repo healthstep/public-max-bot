@@ -3,10 +3,10 @@ package natshandler
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"strconv"
 
 	"github.com/helthtech/public-max-bot/internal/bot"
+	"github.com/helthtech/public-max-bot/internal/obs"
 	"github.com/helthtech/public-max-bot/internal/repository"
 	"github.com/nats-io/nats.go"
 )
@@ -37,37 +37,38 @@ func (h *NotificationHandler) Subscribe(nc *nats.Conn) error {
 	_, err := nc.Subscribe("notification.max", func(msg *nats.Msg) {
 		var notif NotificationMessage
 		if err := json.Unmarshal(msg.Data, &notif); err != nil {
-			log.Printf("nats notification.max unmarshal: %v", err)
+			obs.BG("nats").Error(err, "nats notification.max unmarshal")
 			return
 		}
 
 		var payload notificationPayload
 		if err := json.Unmarshal([]byte(notif.PayloadJSON), &payload); err != nil {
-			log.Printf("nats notification.max payload unmarshal user=%s: %v", notif.UserID, err)
+			obs.BG("nats").Error(err, "nats notification.max payload", "user_id", notif.UserID)
 			return
 		}
 
 		chat, err := h.chatRepo.FindByUserID(context.Background(), notif.UserID)
 		if err != nil {
-			log.Printf("nats notification.max: chat not found for user %s: %v", notif.UserID, err)
+			obs.BG("nats").Error(err, "nats notification.max: chat", "user_id", notif.UserID)
 			return
 		}
 		if chat == nil || chat.ChatID == nil {
-			log.Printf("nats notification.max: no chat_id for user %s", notif.UserID)
+			obs.BG("nats").Warn("nats notification.max: no chat_id", "user_id", notif.UserID)
 			return
 		}
 
 		chatID, err := strconv.ParseInt(*chat.ChatID, 10, 64)
 		if err != nil {
-			log.Printf("nats notification.max: parse chat_id %s: %v", *chat.ChatID, err)
+			obs.BG("nats").Error(err, "nats notification.max: parse chat_id", "raw", *chat.ChatID)
 			return
 		}
 
 		text := bot.BuildNotificationMessage(payload.Title, payload.Body)
+		lg := obs.BG("nats")
 		if err := h.botClient.SendMessage(chatID, text, nil); err != nil {
-			log.Printf("nats notification.max: send to chat %d user %s: %v", chatID, notif.UserID, err)
+			lg.Error(err, "nats notification.max: send", "chat_id", chatID, "user_id", notif.UserID)
 		} else {
-			log.Printf("nats notification.max: sent to chat %d user %s type=%s", chatID, notif.UserID, notif.TemplateCode)
+			lg.Info("nats notification.max: sent", "chat_id", chatID, "user_id", notif.UserID, "type", notif.TemplateCode)
 		}
 	})
 	return err
