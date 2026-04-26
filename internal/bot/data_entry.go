@@ -118,7 +118,10 @@ func (h *Handler) handleAddData(ctx context.Context, cb *Callback, chatID int64)
 	}
 	rows = append(rows, []Button{{Type: "callback", Text: "◀️ Назад", Payload: "menu:back"}})
 
-	prompt := "➕ **Добавить данные**\n\nВыберите группу показателей:\n\n_Отправьте «отмена» в любой момент, чтобы сбросить все ваши данные._"
+	prompt := "➕ **Добавить данные**\n\n" +
+		"📄 В этот чат можно просто отправить **PDF** с анализами (до 5 за раз) — бот обработает без выбора в меню; подтвердите или отклоните извлечённые значения, как в личном кабинете на сайте.\n\n" +
+		"Выберите группу показателей:\n\n" +
+		"_Отправьте «отмена» в любой момент, чтобы сбросить все ваши данные._"
 	_ = h.client.SendMessage(chatID, prompt, &InlineKeyboard{Buttons: rows})
 }
 
@@ -185,7 +188,9 @@ func (h *Handler) showFlatCriteriaList(chatID int64, criteria []*healthpb.Criter
 		}})
 	}
 	rows = append(rows, []Button{{Type: "callback", Text: "◀️ Назад", Payload: "menu:back"}})
-	_ = h.client.SendMessage(chatID, "Выберите показатель:", &InlineKeyboard{Buttons: rows})
+	_ = h.client.SendMessage(chatID,
+		"➕ **Добавить данные**\n\n📄 Сюда же можно отправить **PDF** с анализами (до 5) — бот обработает автоматически.\n\nВыберите показатель:",
+		&InlineKeyboard{Buttons: rows})
 }
 
 // handleDataCallback handles data:* callbacks.

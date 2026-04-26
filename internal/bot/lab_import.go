@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	healthpb "github.com/helthtech/core-health/pkg/proto/health"
 	"github.com/helthtech/public-max-bot/internal/obs"
@@ -15,15 +16,19 @@ import (
 )
 
 const maxLabFiles = 5
+const maxLabDebounce = 2 * time.Second
 
-// pendingMaxLab maps max user id string -> *maxLabCollectState
-var pendingMaxLab sync.Map
-var pendingMaxLabImport sync.Map
 var maxLabConfirmPendingID sync.Map
+var pendingMaxLabImport sync.Map
 
-type maxLabCollectState struct {
-	ChatID int64
-	Files  []rawMaxLabFile
+// maxLabBatches: дебаунс PDF (до 5) без пункта меню
+var maxLabBatches sync.Map
+
+type maxLabBatchState struct {
+	mu     sync.Mutex
+	files  []rawMaxLabFile
+	chatID int64
+	timer  *time.Timer
 }
 
 type rawMaxLabFile struct {
@@ -38,92 +43,135 @@ type rawFilePayload struct {
 }
 
 func (h *Handler) clearMaxLabUpload(maxUserID string) {
-	pendingMaxLab.Delete(maxUserID)
 	maxLabConfirmPendingID.Delete(maxUserID)
+	cancelMaxLabBatch(maxUserID)
 }
 
-func (h *Handler) startMaxLabCollection(ctx context.Context, chatID int64, maxUserID string) {
-	chat, err := h.chatRepo.FindByMaxUserID(ctx, maxUserID)
-	if err != nil || chat == nil || chat.UserID == nil {
-		_ = h.client.SendMessage(chatID, "Сначала зарегистрируйтесь с помощью /start", nil)
+func cancelMaxLabBatch(maxUserID string) {
+	v, ok := maxLabBatches.Load(maxUserID)
+	if !ok {
 		return
 	}
-	h.clearMaxLabUpload(maxUserID)
-	pendingMaxLab.Store(maxUserID, &maxLabCollectState{ChatID: chatID, Files: nil})
-	text := "📄 **Загрузка анализов (PDF)**\n\n" +
-		"Отправьте в чат до 5 PDF-файлов (по одному в сообщении или по очереди).\n\n" +
-		"Когда закончите — нажмите **«Готово»** или напишите «готово»."
-	kb := &InlineKeyboard{Buttons: [][]Button{
-		{
-			{Type: "callback", Text: "✅ Готово", Payload: "lab:done"},
-			{Type: "callback", Text: "◀️ Отмена", Payload: "lab:cancel"},
-		},
-	}}
-	if err := h.client.SendMessage(chatID, text, kb); err != nil {
-		obs.BG("max").Error(err, "startMaxLab", "chat_id", chatID)
+	st := v.(*maxLabBatchState)
+	st.mu.Lock()
+	if st.timer != nil {
+		st.timer.Stop()
 	}
+	st.mu.Unlock()
+	maxLabBatches.Delete(maxUserID)
 }
 
-// tryHandleMaxLabMessage returns true if the message was handled (lab flow or should not fall through to main menu).
+// tryHandleMaxLabMessage: любой PDF-вложение(я) в сообщении — очередь и debounce → ImportCriteriaFromPdf.
 func (h *Handler) tryHandleMaxLabMessage(ctx context.Context, msg *Message) bool {
 	maxUserID := fmtD(msg.Sender.UserID)
 	chatID := msg.Recipient.ChatID
-	text := strings.TrimSpace(msg.Body.Text)
 
-	// In collection mode
-	if stVal, inLab := pendingMaxLab.Load(maxUserID); inLab {
-		st := stVal.(*maxLabCollectState)
-		// attachments: possible PDFs
-		if fbs := h.extractAndDownloadMaxPdfs(ctx, msg); len(fbs) > 0 {
-			if len(st.Files) >= maxLabFiles {
-				_ = h.client.SendMessage(chatID, fmt.Sprintf("Уже %d/%d файлов. Нажмите «Готово».", len(st.Files), maxLabFiles), nil)
-				return true
-			}
-			if _, busy := pendingMaxLabImport.Load(maxUserID); busy {
-				_ = h.client.SendMessage(chatID, "Дождитесь окончания предыдущей обработки.", nil)
-				return true
-			}
-			space := maxLabFiles - len(st.Files)
-			if len(fbs) > space {
-				fbs = fbs[:space]
-			}
-			for _, f := range fbs {
-				st.Files = append(st.Files, f)
-			}
-			pendingMaxLab.Store(maxUserID, st)
-			n := len(st.Files)
-			_ = h.client.SendMessage(chatID, fmt.Sprintf("Принято файл(ов). Всего: %d/%d", n, maxLabFiles), nil)
-			return true
-		}
-		if text != "" {
-			if strings.HasPrefix(text, "/") {
-				h.clearMaxLabUpload(maxUserID)
-				return false
-			}
-			tl := strings.ToLower(text)
-			if tl == "готово" || tl == "готов" {
-				h.runMaxLabUploadDone(ctx, chatID, maxUserID)
-				return true
-			}
-			_ = h.client.SendMessage(chatID, "Пришлите PDF-файл или нажмите «Готово» / «Отмена».", nil)
-			return true
-		}
-		return true
+	if len(msg.Body.Attachments) == 0 {
+		return false
 	}
 
-	// not in lab: user sent file without starting — hint
-	if len(msg.Body.Attachments) > 0 {
+	chat, err := h.chatRepo.FindByMaxUserID(ctx, maxUserID)
+	if err != nil || chat == nil || chat.UserID == nil {
 		var atts []struct{ Type string `json:"type"` }
 		_ = json.Unmarshal(msg.Body.Attachments, &atts)
 		for _, a := range atts {
 			if a.Type == "file" {
-				_ = h.client.SendMessage(chatID, "Чтобы разобрать анализ, сначала нажмите в меню **«Загрузить анализы»**.", nil)
+				_ = h.client.SendMessage(chatID, "Сначала зарегистрируйтесь с помощью /start", nil)
 				return true
 			}
 		}
+		return false
 	}
-	return false
+
+	fbs := h.extractAndDownloadMaxPdfs(ctx, msg)
+	if len(fbs) == 0 {
+		var atts []struct{ Type string `json:"type"` }
+		_ = json.Unmarshal(msg.Body.Attachments, &atts)
+		for _, a := range atts {
+			if a.Type == "file" {
+				_ = h.client.SendMessage(chatID, "Нужен файл **PDF** (анализ).", nil)
+				return true
+			}
+		}
+		return false
+	}
+
+	if _, busy := pendingMaxLabImport.Load(maxUserID); busy {
+		_ = h.client.SendMessage(chatID, "Дождитесь окончания предыдущей обработки.", nil)
+		return true
+	}
+
+	v, _ := maxLabBatches.LoadOrStore(maxUserID, &maxLabBatchState{})
+	st := v.(*maxLabBatchState)
+	st.mu.Lock()
+	if st.chatID == 0 {
+		st.chatID = chatID
+	}
+	space := maxLabFiles - len(st.files)
+	if space <= 0 {
+		st.mu.Unlock()
+		_ = h.client.SendMessage(chatID, fmt.Sprintf("Максимум **%d** PDF в одной пачке.", maxLabFiles), nil)
+		return true
+	}
+	add := fbs
+	if len(add) > space {
+		add = add[:space]
+	}
+	wasEmpty := len(st.files) == 0
+	for _, f := range add {
+		st.files = append(st.files, f)
+	}
+	if st.timer != nil {
+		st.timer.Stop()
+	}
+	uid := maxUserID
+	cid := st.chatID
+	if wasEmpty {
+		_ = h.client.SendMessage(chatID,
+			"📄 **PDF получен.** Можно за "+fmt.Sprintf("%d", int(maxLabDebounce.Seconds()))+" с прислать ещё (до 5 вместе).", nil)
+	}
+	st.timer = time.AfterFunc(maxLabDebounce, func() {
+		h.flushMaxLabBatch(context.Background(), uid, cid)
+	})
+	st.mu.Unlock()
+	return true
 }
+
+func (h *Handler) flushMaxLabBatch(ctx context.Context, maxUserID string, chatID int64) {
+	v, ok := maxLabBatches.Load(maxUserID)
+	if !ok {
+		return
+	}
+	st := v.(*maxLabBatchState)
+	st.mu.Lock()
+	if len(st.files) == 0 {
+		st.mu.Unlock()
+		return
+	}
+	files := make([]rawMaxLabFile, len(st.files))
+	copy(files, st.files)
+	st.files = nil
+	if st.timer != nil {
+		st.timer.Stop()
+		st.timer = nil
+	}
+	st.mu.Unlock()
+	maxLabBatches.Delete(maxUserID)
+
+	if !tryStartMaxLabImport(maxUserID) {
+		_ = h.client.SendMessage(chatID, "Подождите, идёт обработка предыдущей загрузки…", nil)
+		return
+	}
+	_ = h.client.SendMessage(chatID, "Подождите, идёт обработка файла…", nil)
+	go h.runMaxLabImport(ctx, chatID, maxUserID, files)
+}
+
+func tryStartMaxLabImport(maxUserID string) bool {
+	_, loaded := pendingMaxLabImport.LoadOrStore(maxUserID, struct{}{})
+	return !loaded
+}
+
+func doneMaxLabImport(maxUserID string) { pendingMaxLabImport.Delete(maxUserID) }
 
 func (h *Handler) extractAndDownloadMaxPdfs(ctx context.Context, msg *Message) []rawMaxLabFile {
 	if len(msg.Body.Attachments) == 0 {
@@ -166,33 +214,6 @@ func (h *Handler) extractAndDownloadMaxPdfs(ctx context.Context, msg *Message) [
 }
 
 func fmtD(uid int64) string { return fmt.Sprintf("%d", uid) }
-
-func (h *Handler) runMaxLabUploadDone(ctx context.Context, chatID int64, maxUserID string) {
-	v, ok := pendingMaxLab.Load(maxUserID)
-	if !ok {
-		return
-	}
-	st := v.(*maxLabCollectState)
-	if len(st.Files) == 0 {
-		_ = h.client.SendMessage(chatID, "Вы ещё не отправили PDF. Пришлите файл(а) и нажмите «Готово».", nil)
-		return
-	}
-	if !tryStartMaxLabImport(maxUserID) {
-		_ = h.client.SendMessage(chatID, "Подождите, идёт обработка предыдущей загрузки…", nil)
-		return
-	}
-	files := st.Files
-	pendingMaxLab.Delete(maxUserID)
-	_ = h.client.SendMessage(chatID, "Подождите, идёт обработка файла…", nil)
-	go h.runMaxLabImport(ctx, chatID, maxUserID, files)
-}
-
-func tryStartMaxLabImport(maxUserID string) bool {
-	_, loaded := pendingMaxLabImport.LoadOrStore(maxUserID, struct{}{})
-	return !loaded
-}
-
-func doneMaxLabImport(maxUserID string) { pendingMaxLabImport.Delete(maxUserID) }
 
 func (h *Handler) runMaxLabImport(ctx context.Context, chatID int64, maxUserID string, files []rawMaxLabFile) {
 	defer doneMaxLabImport(maxUserID)
@@ -286,7 +307,6 @@ func formatMaxLabExtractionText(resp *healthpb.ImportCriteriaFromPdfResponse) st
 	return b.String()
 }
 
-// escapeMaxMarkdown: minimal escaping for * in names (we use ** for bold in messages).
 func escapeMaxMarkdown(s string) string {
 	s = strings.ReplaceAll(s, "*", "·")
 	return s
@@ -295,7 +315,7 @@ func escapeMaxMarkdown(s string) string {
 func (h *Handler) handleMaxLabConfirm(ctx context.Context, chatID int64, maxUserID string, accept bool) {
 	pidVal, ok := maxLabConfirmPendingID.Load(maxUserID)
 	if !ok {
-		_ = h.client.SendMessage(chatID, "Нет данных для подтверждения. Сначала загрузите анализы через меню.", nil)
+		_ = h.client.SendMessage(chatID, "Нет данных для подтверждения. Сначала пришлите **PDF** с анализом в этот чат.", nil)
 		return
 	}
 	pendingID, _ := pidVal.(string)
@@ -345,12 +365,6 @@ func (h *Handler) handleMaxLabConfirm(ctx context.Context, chatID int64, maxUser
 func (h *Handler) handleLabMaxCallbacks(ctx context.Context, cb *Callback, chatID int64) {
 	maxUserID := fmtD(cb.User.UserID)
 	switch cb.Payload {
-	case "lab:done":
-		h.runMaxLabUploadDone(ctx, chatID, maxUserID)
-	case "lab:cancel":
-		h.clearMaxLabUpload(maxUserID)
-		_ = h.client.SendMessage(chatID, "Загрузка анализов отменена.", nil)
-		h.sendMainMenu(ctx, chatID)
 	case "lab:yes":
 		h.handleMaxLabConfirm(ctx, chatID, maxUserID, true)
 	case "lab:no":
